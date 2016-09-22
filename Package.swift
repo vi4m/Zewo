@@ -10,8 +10,8 @@ let package = Package(
         Target(name: "HTTP", dependencies: ["Core"]),
 
         Target(name: "Venice", dependencies: ["Core"]),
-        Target(name: "IP", dependencies: ["Core"]),
-        Target(name: "TCP", dependencies: ["IP", "OpenSSL"]),
+        Target(name: "IP", dependencies: ["Core", "Venice"]),
+        Target(name: "TCP", dependencies: ["IP", "OpenSSL", "Venice"]),
         Target(name: "File", dependencies: ["Core"]),
         Target(name: "HTTPFile", dependencies: ["HTTP", "File"]),
         Target(name: "HTTPServer", dependencies: ["HTTPFile", "TCP", "Venice"]),
@@ -19,6 +19,7 @@ let package = Package(
     ],
     dependencies: [
         .Package(url: "https://github.com/Zewo/CLibvenice.git", majorVersion: 0, minor: 13),
+        .Package(url: "https://github.com/Zewo/CDNS.git", majorVersion: 0, minor: 13),
         .Package(url: "https://github.com/Zewo/COpenSSL", majorVersion: 0, minor: 13),
         .Package(url: "https://github.com/Zewo/CPOSIX.git", majorVersion: 0, minor: 13),
         .Package(url: "https://github.com/Zewo/CHTTPParser.git", majorVersion: 0, minor: 13),

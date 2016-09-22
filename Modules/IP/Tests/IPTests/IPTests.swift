@@ -43,6 +43,11 @@ public class IPTests : XCTestCase {
         XCTAssertEqual(String(describing: ip), "127.0.0.1")
     }
 
+    func testRemoteIPV4DNS() throws {
+        let ip = try IP(remoteAddress: "www.google.com", port: 5555, mode: .ipV4)
+        XCTAssertEqual(ip.port, 5555)
+    }
+
     func testRemoteIPV6() throws {
         _ = try IP(remoteAddress: "::1", port: 5555, mode: .ipV6)
     }
