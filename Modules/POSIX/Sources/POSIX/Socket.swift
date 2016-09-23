@@ -9,18 +9,18 @@
     public enum SocketType : RawRepresentable {
         case stream
 
-        public init?(rawValue: __socket_type) {
+        public init?(rawValue: Int32) {
             switch rawValue {
-            case SOCK_STREAM:
+            case Int32(SOCK_STREAM.rawValue):
                 self = .stream
             default:
                 return nil
             }
         }
 
-        public var rawValue: __socket_type {
+        public var rawValue: Int32 {
             switch self {
-            case .stream: return SOCK_STREAM
+            case .stream: return Int32(SOCK_STREAM.rawValue)
             }
         }
     }
@@ -47,7 +47,7 @@
 
 
 public func socket(family: AddressFamily, type: SocketType, `protocol`: Int32) throws -> FileDescriptor {
-    let fileDescriptor = socket(family.rawValue, type.rawValue, `protocol`)
+    let fileDescriptor = socket(family.rawValue, Int32(type.rawValue), `protocol`)
     switch fileDescriptor {
     case -1: throw SystemError.lastOperationError
     default: return fileDescriptor
