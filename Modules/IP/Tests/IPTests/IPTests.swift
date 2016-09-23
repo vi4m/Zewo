@@ -81,19 +81,19 @@ public class IPTests : XCTestCase {
     }
 
     func testInvalidLocalIPV4() throws {
-        XCTAssertThrowsError(try IP(address: "yo-yo ma", port: 5555, mode: .ipv4))
+        XCTAssertThrowsError(try IP(address: "yo-yo ma", port: 5555, mode: .ipv4, deadline: 100.millisecond.fromNow()))
     }
 
     func testInvalidLocalIPV6() throws {
-        XCTAssertThrowsError(try IP(address: "yo-yo ma", port: 5555, mode: .ipv6))
+        XCTAssertThrowsError(try IP(address: "yo-yo ma", port: 5555, mode: .ipv6, deadline: 100.millisecond.fromNow()))
     }
 
     func testInvalidLocalIPV4Prefered() throws {
-        XCTAssertThrowsError(try IP(address: "yo-yo ma", port: 5555, mode: .ipv4Prefered))
+        XCTAssertThrowsError(try IP(address: "yo-yo ma", port: 5555, mode: .ipv4Prefered, deadline: 100.millisecond.fromNow()))
     }
 
     func testInvalidLocalIPV6Prefered() throws {
-        XCTAssertThrowsError(try IP(address: "yo-yo ma", port: 5555, mode: .ipv6Prefered))
+        XCTAssertThrowsError(try IP(address: "yo-yo ma", port: 5555, mode: .ipv6Prefered, deadline: 100.millisecond.fromNow()))
     }
 }
 
