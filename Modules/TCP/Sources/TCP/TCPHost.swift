@@ -104,7 +104,9 @@ func tune(socket: FileDescriptor) throws {
     do {
         try setNonBlocking(fileDescriptor: socket)
         try setReuseAddress(socket: socket)
-        try setNoSignalOnBrokenPipe(socket: socket)
+        #if os(macOS)
+            try setNoSignalOnBrokenPipe(socket: socket)
+        #endif
     } catch {
         try TCP.close(socket: socket)
         throw error

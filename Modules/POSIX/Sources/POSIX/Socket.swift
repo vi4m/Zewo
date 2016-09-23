@@ -103,11 +103,11 @@ public struct SendFlags : OptionSet {
     }
 
     public static let none  = SendFlags(rawValue: 0)
-#if os(Linux)
-    public static let noSignal  = SendFlags(rawValue: Int32(MSG_NOSIGNAL))
-#else
-    public static let noSignal  = SendFlags(rawValue: 0)
-#endif
+    #if os(Linux)
+        public static let noSignal  = SendFlags(rawValue: Int32(MSG_NOSIGNAL))
+    #else
+        public static let noSignal  = SendFlags(rawValue: 0)
+    #endif
 }
 
 public func send(socket: FileDescriptor, buffer: UnsafeRawPointer, count: Int, flags: SendFlags = .none) throws -> Int {
@@ -128,11 +128,11 @@ public struct ReceiveFlags : OptionSet {
     }
 
     public static let none  = ReceiveFlags(rawValue: 0)
-    #if os(Linux)
+#if os(Linux)
     public static let noSignal  = ReceiveFlags(rawValue: Int32(MSG_NOSIGNAL))
-    #else
+#else
     public static let noSignal  = ReceiveFlags(rawValue: 0)
-    #endif
+#endif
 }
 
 public func receive(socket: FileDescriptor, buffer: UnsafeMutableRawPointer, count: Int, flags: ReceiveFlags = .none) throws -> Int {
@@ -189,12 +189,13 @@ public func setReuseAddress(socket: FileDescriptor) throws {
     }
 }
 
-public func setNoSignalOnBrokenPipe(socket: FileDescriptor) throws {
-    var option: Int32 = 1
-    let result = setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &option, socklen_t(MemoryLayout<Int32>.size))
+#if os(macOS)
+    public func setNoSignalOnBrokenPipe(socket: FileDescriptor) throws {
+        var option: Int32 = 1
+        let result = setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &option, socklen_t(MemoryLayout<Int32>.size))
 
-    if result != 0 {
-        throw SystemError.lastOperationError
+        if result != 0 {
+            throw SystemError.lastOperationError
+        }
     }
-}
-
+#endif
