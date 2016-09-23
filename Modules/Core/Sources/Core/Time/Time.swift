@@ -33,6 +33,9 @@ public protocol TimeUnitRepresentable {
 
 extension TimeUnitRepresentable {
     public var milliseconds: Double {
+        if self.seconds == .never {
+            return .never
+        }
         return self.seconds / 1000
     }
 
@@ -45,6 +48,9 @@ extension TimeUnitRepresentable {
     }
 
     public var minutes: Double {
+        if self.seconds == .never {
+            return .never
+        }
         return self.seconds * 60
     }
 
@@ -53,6 +59,9 @@ extension TimeUnitRepresentable {
     }
 
     public var hours: Double {
+        if self.seconds == .never {
+            return .never
+        }
         return self.minutes * 60
     }
 
