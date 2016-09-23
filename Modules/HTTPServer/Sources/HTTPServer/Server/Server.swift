@@ -31,11 +31,11 @@ public struct Server {
         var chain: [Middleware] = []
 
         if enableLog {
-            chain.append(LogMiddleware())
+            //chain.append(LogMiddleware())
         }
 
         if enableSession {
-            chain.append(SessionMiddleware())
+//            chain.append(SessionMiddleware())
         }
 
         if enableContentNegotiation {
@@ -94,15 +94,15 @@ public struct Server {
         var chain: [Middleware] = []
 
         if enableLog {
-            chain.append(LogMiddleware())
+//            chain.append(LogMiddleware())
         }
 
         if enableSession {
-            chain.append(SessionMiddleware())
+//            chain.append(SessionMiddleware())
         }
 
         if enableContentNegotiation {
-            chain.append(ContentNegotiationMiddleware(mediaTypes: [JSON.self, URLEncodedForm.self]))
+//            chain.append(ContentNegotiationMiddleware(mediaTypes: [JSON.self, URLEncodedForm.self]))
         }
 
         chain.append(contentsOf: middleware)
@@ -195,7 +195,7 @@ extension Server {
 
     private static func recover(error: Error) -> (Response, Error?) {
         guard let representable = error as? ResponseRepresentable else {
-            let body = Data(String(describing: error))
+            let body = Buffer(String(describing: error))
             return (Response(status: .internalServerError, body: body), error)
         }
         return (representable.response, nil)
