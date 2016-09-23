@@ -4,27 +4,50 @@
     import Darwin.C
 #endif
 
-public enum SocketType : RawRepresentable {
-    case stream
 
-    public init?(rawValue: Int32) {
-        switch rawValue {
-        case SOCK_STREAM:
-            self = .stream
-        default:
-            return nil
+#if os(Linux)
+    public enum SocketType : RawRepresentable {
+        case stream
+
+        public init?(rawValue: __socket_type) {
+            switch rawValue {
+            case SOCK_STREAM:
+                self = .stream
+            default:
+                return nil
+            }
+        }
+
+        public var rawValue: __socket_type {
+            switch self {
+            case .stream: return SOCK_STREAM
+            }
         }
     }
+#else
+    public enum SocketType : RawRepresentable {
+        case stream
 
-    public var rawValue: Int32 {
-        switch self {
-        case .stream: return SOCK_STREAM
+        public init?(rawValue: Int32) {
+            switch rawValue {
+            case SOCK_STREAM:
+                self = .stream
+            default:
+                return nil
+            }
+        }
+
+        public var rawValue: Int32 {
+            switch self {
+            case .stream: return SOCK_STREAM
+            }
         }
     }
-}
+#endif
+
 
 public func socket(family: AddressFamily, type: SocketType, `protocol`: Int32) throws -> FileDescriptor {
-    let fileDescriptor = Darwin.socket(family.rawValue, type.rawValue, `protocol`)
+    let fileDescriptor = socket(family.rawValue, type.rawValue, `protocol`)
     switch fileDescriptor {
     case -1: throw SystemError.lastOperationError
     default: return fileDescriptor
@@ -34,7 +57,7 @@ public func socket(family: AddressFamily, type: SocketType, `protocol`: Int32) t
 public func bind(socket: FileDescriptor, address: Address) throws {
     var address = address
     let result = address.withAddressPointer {
-        Darwin.bind(socket, $0, socklen_t(address.length))
+        bind(socket, $0, socklen_t(address.length))
     }
 
     guard result == 0 else {
@@ -43,7 +66,7 @@ public func bind(socket: FileDescriptor, address: Address) throws {
 }
 
 public func listen(socket: FileDescriptor, backlog: Int) throws {
-    let result = Darwin.listen(socket, Int32(backlog))
+    let result = listen(socket, Int32(backlog))
 
     guard result == 0 else {
         throw SystemError.lastOperationError
@@ -72,8 +95,23 @@ public func connect(socket: FileDescriptor, address: Address) throws {
     }
 }
 
-public func send(socket: FileDescriptor, buffer: UnsafeRawPointer, count: Int, flags: Int32 = 0) throws -> Int {
-    let result = send(socket, buffer, count, flags)
+public struct SendFlags : OptionSet {
+    public let rawValue: Int32
+
+    public init(rawValue: Int32) {
+        self.rawValue = rawValue
+    }
+
+    public static let none  = SendFlags(rawValue: 0)
+#if os(Linux)
+    public static let noSignal  = SendFlags(rawValue: Int32(MSG_NOSIGNAL))
+#else
+    public static let noSignal  = SendFlags(rawValue: 0)
+#endif
+}
+
+public func send(socket: FileDescriptor, buffer: UnsafeRawPointer, count: Int, flags: SendFlags = .none) throws -> Int {
+    let result = send(socket, buffer, count, flags.rawValue)
 
     guard result != -1 else {
         throw SystemError.lastOperationError
@@ -82,8 +120,23 @@ public func send(socket: FileDescriptor, buffer: UnsafeRawPointer, count: Int, f
     return result
 }
 
-public func receive(socket: FileDescriptor, buffer: UnsafeMutableRawPointer, count: Int, flags: Int32 = 0) throws -> Int {
-    let result = recv(socket, buffer, count, flags)
+public struct ReceiveFlags : OptionSet {
+    public let rawValue: Int32
+
+    public init(rawValue: Int32) {
+        self.rawValue = rawValue
+    }
+
+    public static let none  = ReceiveFlags(rawValue: 0)
+    #if os(Linux)
+    public static let noSignal  = ReceiveFlags(rawValue: Int32(MSG_NOSIGNAL))
+    #else
+    public static let noSignal  = ReceiveFlags(rawValue: 0)
+    #endif
+}
+
+public func receive(socket: FileDescriptor, buffer: UnsafeMutableRawPointer, count: Int, flags: ReceiveFlags = .none) throws -> Int {
+    let result = recv(socket, buffer, count, flags.rawValue)
 
     guard result != -1 else {
         throw SystemError.lastOperationError

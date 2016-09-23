@@ -60,7 +60,7 @@ public final class TCPConnection : Connection {
         loop: while true {
             do {
                 let bytesWritten = try buffer.withUnsafeBytes {
-                    try POSIX.send(socket: socket, buffer: $0, count: length)
+                    try POSIX.send(socket: socket, buffer: $0, count: length, flags: )
                 }
                 return bytesWritten
             } catch {

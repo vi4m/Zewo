@@ -158,7 +158,21 @@ extension Address : CustomStringConvertible {
     }
 }
 
-#if os(macOS)
+#if os(Linux)
+    /**
+     Converts the unsigned short integer hostshort from host byte order to network byte order.
+     */
+    public func htons(_ value: UInt16) -> UInt16 {
+        return Glibc.htons(port)
+    }
+
+    /**
+     Converts the unsigned integer hostlong from host byte order to network byte order.
+     */
+    public func htonl(_ value: UInt32) -> UInt32 {
+        return Glibc.htonl(value)
+    }
+#else
     /**
      Converts the unsigned short integer hostshort from host byte order to network byte order.
     */
