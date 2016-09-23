@@ -120,10 +120,4 @@ func setReusePort(socket: FileDescriptor) throws {
         try TCP.close(socket: socket)
         throw error
     }
-    
-    deinit {
-        if let socket = socket {
-            tcpclose(socket)
-        }
-    }
 }

@@ -46,29 +46,73 @@ public final class TCPConnection : Connection {
         self.socket = socket
         self.closed = false
     }
-
-    public func write(_ buffer: Data, length: Int, deadline: Double) throws -> Int {
+    
+    public func write(_ buffer: UnsafeBufferPointer<UInt8>, deadline: Double) throws {
+        guard !buffer.isEmpty else {
+            return
+        }
+        
         let socket = try getSocket()
         try ensureStillOpen()
-
+        
         loop: while true {
+            var remaining: UnsafeBufferPointer<UInt8> = buffer
             do {
-                let bytesWritten = try buffer.withUnsafeBytes {
-                    try POSIX.send(socket: socket, buffer: $0, count: length, flags: .noSignal)
+                let bytesWritten = try POSIX.send(socket: socket, buffer: remaining.baseAddress!, count: remaining.count, flags: .noSignal)
+                guard bytesWritten > 0 else {
+                    throw SystemError.other(errorNumber: -1)
                 }
-                return bytesWritten
+                guard bytesWritten < remaining.count else {
+                    return
+                }
+                
+                let remainingCount = remaining.startIndex.advanced(by: bytesWritten).distance(to: remaining.endIndex)
+                remaining = UnsafeBufferPointer<UInt8>(start: remaining.baseAddress!.advanced(by: bytesWritten), count: remainingCount)
             } catch {
                 switch error {
                 case SystemError.resourceTemporarilyUnavailable, SystemError.operationWouldBlock:
                     do {
                         try poll(socket, events: .write, deadline: deadline)
                     } catch PollError.timeout {
-                        throw StreamError.timeout(data: Data())
+                        throw StreamError.timeout(buffer: Buffer())
                     }
                     continue loop
                 case SystemError.connectionResetByPeer, SystemError.brokenPipe:
                     close()
-                    throw StreamError.closedStream(data: Data())
+                    throw StreamError.closedStream(buffer: Buffer())
+                default:
+                    throw error
+                }
+            }
+        }
+    }
+    
+    public func read(into: UnsafeMutableBufferPointer<UInt8>, deadline: Double) throws -> Int {
+        guard !into.isEmpty else {
+            return 0
+        }
+        
+        let socket = try getSocket()
+        try ensureStillOpen()
+        
+        loop: while true {
+            do {
+                
+                let bytesRead = try POSIX.receive(socket: socket, buffer: into.baseAddress!, count: into.count)
+                guard bytesRead != 0 else {
+                    close()
+                    throw StreamError.closedStream(buffer: Buffer())
+                }
+                return bytesRead
+            } catch {
+                switch error {
+                case SystemError.resourceTemporarilyUnavailable, SystemError.operationWouldBlock:
+                    do {
+                        try poll(socket, events: .read, deadline: deadline)
+                    } catch PollError.timeout {
+                        throw StreamError.timeout(buffer: Buffer())
+                    }
+                    continue loop
                 default:
                     throw error
                 }
@@ -79,38 +123,6 @@ public final class TCPConnection : Connection {
     public func flush(deadline: Double) throws {
         try getSocket()
         try ensureStillOpen()
-    }
-
-    public func read(into buffer: inout Data, length: Int, deadline: Double = 1.minute.fromNow()) throws -> Int {
-        let socket = try getSocket()
-        try ensureStillOpen()
-
-        loop: while true {
-            do {
-                let bytesRead = try buffer.withUnsafeMutableBytes {
-                    try POSIX.receive(socket: socket, buffer: $0, count: length)
-                }
-
-                if bytesRead == 0 {
-                    close()
-                    throw StreamError.closedStream(data: Data())
-                }
-
-                return bytesRead
-            } catch {
-                switch error {
-                case SystemError.resourceTemporarilyUnavailable, SystemError.operationWouldBlock:
-                    do {
-                        try poll(socket, events: .read, deadline: deadline)
-                    } catch PollError.timeout {
-                        throw StreamError.timeout(data: Data())
-                    }
-                    continue loop
-                default:
-                    throw error
-                }
-            }
-        }
     }
 
     public func close() {
@@ -133,7 +145,7 @@ public final class TCPConnection : Connection {
 
     private func ensureStillOpen() throws {
         if closed {
-            throw StreamError.closedStream(data: Data())
+            throw StreamError.closedStream(buffer: Buffer())
         }
     }
 
