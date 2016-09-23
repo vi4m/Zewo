@@ -163,7 +163,7 @@ extension Address : CustomStringConvertible {
      Converts the unsigned short integer hostshort from host byte order to network byte order.
      */
     public func htons(_ value: UInt16) -> UInt16 {
-        return Glibc.htons(port)
+        return Glibc.htons(value)
     }
 
     /**
