@@ -109,7 +109,7 @@ extension Address {
         if let ipv4 = ipv4 {
             self = Address.fromIPv4Pointer { address in
                 memcpy(address, ipv4.pointee.ai_addr, MemoryLayout<sockaddr_in>.size)
-                address.pointee.sin_port = htons(UInt16(port))
+                address.pointee.sin_port = POSIX.htons(UInt16(port))
                 ipv4.deallocate(capacity: 1)
             }
             return
@@ -118,7 +118,7 @@ extension Address {
         if let ipv6 = ipv6 {
             self = Address.fromIPv6Pointer { address in
                 memcpy(address, ipv6.pointee.ai_addr, MemoryLayout<sockaddr_in6>.size)
-                address.pointee.sin6_port = htons(UInt16(port))
+                address.pointee.sin6_port = POSIX.htons(UInt16(port))
                 ipv6.deallocate(capacity: 1)
             }
             return
