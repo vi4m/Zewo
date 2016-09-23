@@ -28,7 +28,7 @@ extension Body {
 }
 
 extension Body {
-    public mutating func becomeBuffer(deadline: Double = .never) throws -> Data {
+    public mutating func becomeBuffer(deadline: Double = 1.minute.fromNow()) throws -> Data {
         switch self {
         case .buffer(let data):
             return data
@@ -62,7 +62,7 @@ extension Body {
         }
     }
 
-    public mutating func becomeWriter(deadline: Double = .never) throws -> ((OutputStream) throws -> Void) {
+    public mutating func becomeWriter(deadline: Double = 1.minute.fromNow()) throws -> ((OutputStream) throws -> Void) {
         switch self {
         case .buffer(let data):
             let closure: ((OutputStream) throws -> Void) = { writer in

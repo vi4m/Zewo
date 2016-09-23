@@ -32,7 +32,7 @@ final class BodyStream : Stream {
         return length
     }
 
-    func flush(deadline: Double = .never) throws {
+    func flush(deadline: Double = 1.minute.fromNow()) throws {
         try transport.flush()
     }
 }

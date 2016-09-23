@@ -90,7 +90,7 @@ public class TCPTests : XCTestCase {
 
     func testClientServer() throws {
         let port = 6666
-        let host = try TCPHost(configuration: ["host": "127.0.0.1", "port": Map(port), "reusePort": true])
+        let host = try TCPHost(host: "127.0.0.1", port: port, reusePort: true)
 
         co {
             do {
@@ -109,7 +109,7 @@ public class TCPTests : XCTestCase {
             }
         }
 
-        let connection = try host.accept()
+        let connection = try host.accept(deadline: 10.seconds.fromNow())
         let deadline = 30.milliseconds.fromNow()
 
         var buffer = Data(count: 16)

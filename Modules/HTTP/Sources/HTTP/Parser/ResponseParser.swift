@@ -61,7 +61,7 @@ public final class ResponseParser {
         parser.data = UnsafeMutableRawPointer(context)
     }
 
-    public func parse(deadline: Double = .never) throws -> Response {
+    public func parse(deadline: Double = 1.minute.fromNow()) throws -> Response {
         var read = 0
 
         while true {

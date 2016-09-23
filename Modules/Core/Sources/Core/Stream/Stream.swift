@@ -14,7 +14,7 @@ extension InputStream {
         return try read(into: &buffer, length: length, deadline: .never)
     }
 
-    public func read(into buffer: inout Data, deadline: Double = .never) throws -> Int {
+    public func read(into buffer: inout Data, deadline: Double = 1.minute.fromNow()) throws -> Int {
         return try read(into: &buffer, length: buffer.count, deadline: deadline)
     }
 }
@@ -34,17 +34,17 @@ extension OutputStream {
     }
 
     @discardableResult
-    public func write(_ buffer: Data, deadline: Double = .never) throws -> Int {
+    public func write(_ buffer: Data, deadline: Double = 1.minute.fromNow()) throws -> Int {
         return try write(buffer, length: buffer.count, deadline: deadline)
     }
 
     @discardableResult
-    public func write(_ convertible: DataConvertible, length: Int, deadline: Double = .never) throws -> Int {
+    public func write(_ convertible: DataConvertible, length: Int, deadline: Double = 1.minute.fromNow()) throws -> Int {
         return try write(convertible.data, length: length, deadline: deadline)
     }
 
     @discardableResult
-    public func write(_ convertible: DataConvertible, deadline: Double = .never) throws -> Int {
+    public func write(_ convertible: DataConvertible, deadline: Double = 1.minute.fromNow()) throws -> Int {
         let buffer = convertible.data
         return try write(buffer, length: buffer.count, deadline: deadline)
     }

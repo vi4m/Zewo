@@ -6,7 +6,7 @@ public final class Drain : DataRepresentable, Stream {
         return buffer
     }
 
-    public init(stream: InputStream, deadline: Double = .never) {
+    public init(stream: InputStream, deadline: Double = 1.minute.fromNow()) {
         var inputBuffer = Data(count: 2048)
         var outputBuffer = Data()
 
@@ -42,7 +42,7 @@ public final class Drain : DataRepresentable, Stream {
         closed = true
     }
 
-    public func read(into targetBuffer: inout Data, length: Int, deadline: Double = .never) throws -> Int {
+    public func read(into targetBuffer: inout Data, length: Int, deadline: Double = 1.minute.fromNow()) throws -> Int {
         if closed && buffer.count == 0 {
             throw StreamError.closedStream(data: Data())
         }
@@ -64,7 +64,7 @@ public final class Drain : DataRepresentable, Stream {
         return length
     }
 
-    public func write(_ data: Data, length: Int, deadline: Double = .never) throws -> Int {
+    public func write(_ data: Data, length: Int, deadline: Double = 1.minute.fromNow()) throws -> Int {
         data.withUnsafeBytes {
             buffer.append($0, count: length)
         }
@@ -72,5 +72,5 @@ public final class Drain : DataRepresentable, Stream {
         return length
     }
 
-    public func flush(deadline: Double = .never) throws {}
+    public func flush(deadline: Double = 1.minute.fromNow()) throws {}
 }

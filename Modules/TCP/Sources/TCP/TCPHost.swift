@@ -1,4 +1,4 @@
-import CLibvenice
+import POSIX
 import Venice
 
 public enum TCPError : Error {
@@ -6,7 +6,7 @@ public enum TCPError : Error {
     case failedToConnectSocket
     case failedToBindSocket
     case failedToListen
-    case failedToGetPort
+    case failedToGetSocketAddress
     case acceptTimedOut
     case connectTimedOut
     case writeTimedOut
@@ -17,137 +17,105 @@ public final class TCPHost : Host {
     private let socket: FileDescriptor
     public let ip: IP
 
-    public init(configuration: Map) throws {
-        let host = configuration["host"].string ?? "0.0.0.0"
-        let port = configuration["port"].int ?? 8080
-        let backlog = configuration["backlog"].int ?? 128
-        let reusePort = configuration["reusePort"].bool ?? false
-
-        let ip = try IP(localAddress: host, port: port)
-        (self.socket, self.ip) = try TCPHost.createSocket(ip: ip, backlog: backlog, reusePort: reusePort)
+    public init(socket: FileDescriptor, ip: IP) {
+        self.socket = socket
+        self.ip = ip
     }
 
-    public func accept(deadline: Double = .never) throws -> Stream {
-        return try TCPHost.acceptSocket(socket, deadline: deadline)
-    }
-}
-
-extension TCPHost {
-    fileprivate static func createSocket(ip: IP, backlog: Int, reusePort: Bool) throws -> (FileDescriptor, IP) {
+    public convenience init(ip: IP, backlog: Int, reusePort: Bool) throws {
         var address = ip.address
-        let s = socket(Int32(address.family), SOCK_STREAM, 0)
-        if s == -1 {
+        guard let socket = try? POSIX.socket(family: address.family, type: .stream, protocol: 0) else {
             throw TCPError.failedToCreateSocket
         }
 
-        try tune(socket: s)
+        try TCP.tune(socket: socket)
 
         if reusePort {
-            try TCP.reusePort(socket: s)
+            try TCP.setReusePort(socket: socket)
         }
 
-        var result = address.withAddressPointer {
-            bind(s, $0, socklen_t(address.length))
-        }
-
-        if result != 0 {
+        do {
+            try POSIX.bind(socket: socket, address: address)
+        } catch {
             throw TCPError.failedToBindSocket
         }
 
-        result = listen(s, Int32(backlog))
+        try POSIX.listen(socket: socket, backlog: backlog)
 
-        if result != 0 {
-            throw TCPError.failedToListen
-        }
-
+        // If the user requested an ephemeral port, retrieve the port number assigned by the OS now.
         if address.port == 0 {
-            var length = socklen_t(address.length)
-            let result = address.withAddressPointer {
-                getsockname(s, $0, &length)
-            }
-
-            if result == -1 {
-                fdclean(s)
-                close(s)
-                throw TCPError.failedToGetPort
+            do {
+                address = try POSIX.getAddress(socket: socket)
+            } catch {
+                try TCP.close(socket: socket)
+                throw TCPError.failedToGetSocketAddress
             }
         }
 
         let ip = IP(address: address)
-        return (s, ip)
+        self.init(socket: socket, ip: ip)
     }
 
-    fileprivate static func acceptSocket(_ socket: FileDescriptor, deadline: Double) throws -> TCPConnection {
-        var address = IP.Address()
-        var length = socklen_t(address.length)
-        while true {
-            let acceptSocket = address.withAddressPointer {
-                Darwin.accept(socket, $0, &length)
-            }
+    public convenience init(host: String = "0.0.0.0", port: Int = 8080, backlog: Int = 128, reusePort: Bool = false) throws {
+        let ip = try IP(address: host, port: port)
+        try self.init(ip: ip, backlog: backlog, reusePort: reusePort)
+    }
 
-            if acceptSocket >= 0 {
-                try tune(socket: acceptSocket)
+    public convenience init(configuration: Map) throws {
+        let host = configuration["host"].string ?? "0.0.0.0"
+        let port = configuration["port"].int ?? 8080
+        let backlog = configuration["backlog"].int ?? 128
+        let reusePort = configuration["reusePort"].bool ?? false
+        try self.init(host: host, port: port, backlog: backlog, reusePort: reusePort)
+    }
+
+    public func accept(deadline: Double = 1.minute.fromNow()) throws -> Stream {
+        loop: while true {
+            do {
+                // Try to get new connection (non-blocking).
+                let (acceptSocket, address) = try POSIX.accept(socket: socket)
+                try TCP.tune(socket: acceptSocket)
                 let ip = IP(address: address)
                 return TCPConnection(socket: acceptSocket, ip: ip)
-            }
-
-            if errno != EAGAIN && errno != EWOULDBLOCK {
-                throw SystemError.lastOperationError!
-            }
-
-            do {
-                try poll(socket, events: .read, deadline: deadline)
-            } catch PollError.timeout {
-                throw TCPError.acceptTimedOut
+            } catch {
+                switch error {
+                case SystemError.resourceTemporarilyUnavailable, SystemError.operationWouldBlock:
+                    do {
+                        // Wait till new connection is available.
+                        try poll(socket, events: .read, deadline: deadline)
+                        continue loop
+                    } catch PollError.timeout {
+                        throw TCPError.acceptTimedOut
+                    }
+                default:
+                    throw error
+                }
             }
         }
     }
 }
 
-func reusePort(socket: FileDescriptor) throws {
-    var option = 1
-    let result = setsockopt(socket, SOL_SOCKET, SO_REUSEPORT, &option, socklen_t(sizeofValue(option)))
-
-    if result != 0 {
-        fdclean(socket)
-        close(socket)
-        throw TCPError.invalidFileDescriptor
-    }
+func close(socket: FileDescriptor) throws {
+    Venice.clean(fileDescriptor: socket)
+    try POSIX.close(fileDescriptor: socket)
 }
 
 func tune(socket: FileDescriptor) throws {
     do {
-        var option = fcntl(socket, F_GETFL, 0)
-
-        if option == -1 {
-            option = 0
-        }
-
-        var result = fcntl(socket, F_SETFL, option | O_NONBLOCK)
-
-        if result != 0 {
-            throw TCPError.invalidFileDescriptor
-        }
-
-        /*  Allow re-using the same local address rapidly. */
-        option = 1
-        result = setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &option, socklen_t(sizeofValue(option)))
-
-        if result != 0 {
-            throw TCPError.invalidFileDescriptor
-        }
-
-        /* If possible, prevent SIGPIPE signal when writing to the connection
-         already closed by the peer. */
-        option = 1
-        result = setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &option, socklen_t(sizeofValue(option)))
-
-        if result != 0 {
-            throw TCPError.invalidFileDescriptor
-        }
+        try setNonBlocking(fileDescriptor: socket)
+        try setReuseAddress(socket: socket)
+        try setNoSignalOnBrokenPipe(socket: socket)
     } catch {
-        fdclean(socket)
-        close(socket)
+        try TCP.close(socket: socket)
+        throw error
+    }
+}
+
+func setReusePort(socket: FileDescriptor) throws {
+    do {
+        try POSIX.setReusePort(socket: socket)
+    } catch {
+        try TCP.close(socket: socket)
         throw error
     }
 }

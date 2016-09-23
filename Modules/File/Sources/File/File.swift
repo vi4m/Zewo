@@ -5,6 +5,7 @@
 #endif
 
 @_exported import Core
+import POSIX
 import CLibvenice
 
 public enum FileMode {
@@ -127,7 +128,7 @@ extension File {
         return bytesRead
     }
 
-    //    public func read(_ byteCount: Int, deadline: Double = .never) throws -> Data {
+    //    public func read(_ byteCount: Int, deadline: Double = .1.minute.fromNow()) throws -> Data {
     //        try ensureFileIsOpen()
     //
     //        var data = Data(count: byteCount)
@@ -141,7 +142,7 @@ extension File {
     //        return receivedData
     //    }
 
-    public func readAll(bufferSize: Int = 2048, deadline: Double = .never) throws -> Data {
+    public func readAll(bufferSize: Int = 2048, deadline: Double = 1.minute.fromNow()) throws -> Data {
         var inputBuffer = Data(count: bufferSize)
         var outputBuffer = Data()
 

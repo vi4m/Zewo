@@ -1,10 +1,17 @@
-import CLibvenice
+#if os(Linux)
+    import Glibc
+#else
+    import Darwin.C
+#endif
+
+import POSIX
 import Venice
 
 public final class TCPConnection : Connection {
-    public let ip: IP
     private var socket: FileDescriptor?
-    public private(set) var closed = true
+
+    public private(set) var ip: IP
+    public private(set) var closed: Bool
 
     internal init(socket: FileDescriptor, ip: IP) {
         self.ip = ip
@@ -12,52 +19,34 @@ public final class TCPConnection : Connection {
         self.closed = false
     }
 
-    public init(host: String, port: Int, deadline: Double = .never) throws {
-        self.ip = try IP(remoteAddress: host, port: port, deadline: deadline)
+    public init(host: String, port: Int, deadline: Double = 1.minute.fromNow()) throws {
+        self.ip = try IP(address: host, port: port, deadline: deadline)
         self.socket = nil
+        self.closed = true
     }
 
-    public func open(deadline: Double = .never) throws {
-        var address = ip.address
-        let socket = Darwin.socket(Int32(address.family), SOCK_STREAM, 0)
+    public func open(deadline: Double = 1.minute.fromNow()) throws {
+        let address = ip.address
 
-        if socket == -1 {
+        guard let socket = try? POSIX.socket(family: address.family, type: .stream, protocol: 0) else {
             throw TCPError.failedToCreateSocket
         }
 
-        try tune(socket: socket)
+        try TCP.tune(socket: socket)
 
-        var result = address.withAddressPointer {
-            connect(socket, $0, socklen_t(address.length))
-        }
-
-        if result != 0 {
-            if errno != EINPROGRESS {
-                throw TCPError.failedToConnectSocket
-            }
-
+        do {
+            try POSIX.connect(socket: socket, address: address)
+        } catch SystemError.operationNowInProgress {
             do {
                 try poll(socket, events: .write, deadline: deadline)
             } catch PollError.timeout {
+                try TCP.close(socket: socket)
                 throw TCPError.connectTimedOut
             }
-
-            var error = 0
-            var errorSize = socklen_t(MemoryLayout<Int32>.size)
-
-            result = getsockopt(socket, SOL_SOCKET, SO_ERROR, &error, &errorSize)
-
-            if result != 0 {
-                fdclean(socket)
-                _ = Darwin.close(socket)
-                throw TCPError.failedToConnectSocket
-            }
-
-            if error != 0 {
-                fdclean(socket)
-                _ = Darwin.close(socket)
-                throw TCPError.failedToConnectSocket
-            }
+            try POSIX.checkError(socket: socket)
+        } catch {
+            try TCP.close(socket: socket)
+            throw TCPError.failedToConnectSocket
         }
 
         self.socket = socket
@@ -68,26 +57,28 @@ public final class TCPConnection : Connection {
         let socket = try getSocket()
         try ensureStillOpen()
 
-        while true {
-            let bytesWritten = buffer.withUnsafeBytes {
-                send(socket, $0, length, 0)
-            }
-
-            if bytesWritten == -1 {
-                if errno != EAGAIN && errno != EWOULDBLOCK {
-                    throw SystemError.lastOperationError!
+        loop: while true {
+            do {
+                let bytesWritten = try buffer.withUnsafeBytes {
+                    try POSIX.send(socket: socket, buffer: $0, count: length)
                 }
-
-                do {
-                    try poll(socket, events: .write, deadline: deadline)
-                } catch PollError.timeout {
-                    throw StreamError.timeout(data: Data())
+                return bytesWritten
+            } catch {
+                switch error {
+                case SystemError.resourceTemporarilyUnavailable, SystemError.operationWouldBlock:
+                    do {
+                        try poll(socket, events: .write, deadline: deadline)
+                    } catch PollError.timeout {
+                        throw StreamError.timeout(data: Data())
+                    }
+                    continue loop
+                case SystemError.connectionResetByPeer, SystemError.brokenPipe:
+                    close()
+                    throw StreamError.closedStream(data: Data())
+                default:
+                    throw error
                 }
-
-                continue
             }
-
-            return bytesWritten
         }
     }
 
@@ -96,45 +87,46 @@ public final class TCPConnection : Connection {
         try ensureStillOpen()
     }
 
-    public func read(into buffer: inout Data, length: Int, deadline: Double = .never) throws -> Int {
+    public func read(into buffer: inout Data, length: Int, deadline: Double = 1.minute.fromNow()) throws -> Int {
         let socket = try getSocket()
         try ensureStillOpen()
 
-        while true {
-            let bytesRead = buffer.withUnsafeMutableBytes {
-                recv(socket, $0, length, 0)
-            }
-
-            if bytesRead == 0 {
-                close()
-                throw StreamError.closedStream(data: Data())
-            }
-
-            if bytesRead == -1 {
-                if errno != EAGAIN && errno != EWOULDBLOCK {
-                    throw SystemError.lastOperationError!
+        loop: while true {
+            do {
+                let bytesRead = try buffer.withUnsafeMutableBytes {
+                    try POSIX.receive(socket: socket, buffer: $0, count: length)
                 }
 
-                do {
-                    try poll(socket, events: .read, deadline: deadline)
-                } catch PollError.timeout {
-                    throw StreamError.timeout(data: Data())
+                if bytesRead == 0 {
+                    close()
+                    throw StreamError.closedStream(data: Data())
                 }
 
-                continue
+                return bytesRead
+            } catch {
+                switch error {
+                case SystemError.resourceTemporarilyUnavailable, SystemError.operationWouldBlock:
+                    do {
+                        try poll(socket, events: .read, deadline: deadline)
+                    } catch PollError.timeout {
+                        throw StreamError.timeout(data: Data())
+                    }
+                    continue loop
+                default:
+                    throw error
+                }
             }
-
-            return bytesRead
         }
     }
 
     public func close() {
-        if !closed, let socket = try? getSocket() {
-            fdclean(socket)
-            _ = Darwin.close(socket)
+        guard !closed, let socket = try? getSocket() else {
+            return
         }
 
-        closed = true
+        try? TCP.close(socket: socket)
+        self.socket = nil
+        self.closed = true
     }
 
     @discardableResult
