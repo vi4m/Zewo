@@ -99,6 +99,15 @@ public final class File : Stream {
 }
 
 extension File {
+    // TODO: Actually open the file here instead of init.
+    public func open(deadline: Double) throws {}
+
+    public func close() {
+        if !closed {
+            fileclose(file)
+        }
+        closed = true
+    }
     
     public func write(_ buffer: UnsafeBufferPointer<UInt8>, deadline: Double = .never) throws {
         guard !buffer.isEmpty else {
@@ -150,13 +159,6 @@ extension File {
         try ensureFileIsOpen()
         fileflush(file, deadline.int64milliseconds)
         try ensureLastOperationSucceeded()
-    }
-
-    public func close() {
-        if !closed {
-            fileclose(file)
-        }
-        closed = true
     }
 
     private func ensureFileIsOpen() throws {

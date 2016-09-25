@@ -1,22 +1,7 @@
 import COpenSSL
 
-public final class SSLConnection : Connection {
-
-	private enum Raw {
-		case stream(Stream)
-		case connection(Connection)
-
-		var stream: Stream {
-			switch self {
-			case .stream(let stream):
-				return stream
-			case .connection(let connection):
-				return connection
-			}
-		}
-	}
-
-	private let raw: Raw
+public final class SSLStream : Stream {
+	private let rawStream: Stream
 	private let context: Context
 	private let session: SSLSession
 	private let readIO: IO
@@ -24,19 +9,11 @@ public final class SSLConnection : Connection {
 
 	public var closed: Bool = false
 
-	public convenience init(context: Context, rawStream: Stream) throws {
-		try self.init(context: context, raw: .stream(rawStream))
-	}
-
-	public convenience init(context: Context, rawConnection: Connection) throws {
-		try self.init(context: context, raw: .connection(rawConnection))
-	}
-
-	private init(context: Context, raw: Raw) throws {
+	public init(context: Context, rawStream: Stream) throws {
 		initialize()
 
 		self.context = context
-		self.raw = raw
+		self.rawStream = rawStream
 
 		readIO = try IO()
 		writeIO = try IO()
@@ -56,10 +33,7 @@ public final class SSLConnection : Connection {
 	}
 
 	public func open(deadline: Double) throws {
-		if case .connection(let rawConnection) = raw {
-			try rawConnection.open(deadline: deadline)
-		}
-
+		try rawStream.open(deadline: deadline)
 		try handshake(deadline: deadline)
 	}
     
@@ -68,7 +42,7 @@ public final class SSLConnection : Connection {
         try rawBuffer.withUnsafeMutableBufferPointer { buffer in
             func flushAndReceive() throws {
                 try self.flush(deadline: deadline)
-                let bytesRead = try self.raw.stream.read(into: buffer, deadline: deadline)
+                let bytesRead = try self.rawStream.read(into: buffer, deadline: deadline)
                 _ = try self.readIO.write(UnsafeBufferPointer<UInt8>(start: buffer.baseAddress!, count: bytesRead))
             }
             while !session.initializationFinished {
@@ -98,7 +72,7 @@ public final class SSLConnection : Connection {
             } catch SSLSessionError.wantRead {
                 do {
                     try rawBuffer.withUnsafeMutableBufferPointer { buffer in
-                        let bytesRead = try self.raw.stream.read(into: buffer, deadline: deadline)
+                        let bytesRead = try self.rawStream.read(into: buffer, deadline: deadline)
                         _ = try self.readIO.write(UnsafeBufferPointer<UInt8>(start: buffer.baseAddress!, count: bytesRead))
                     }
                 } catch StreamError.closedStream(let buffer) {
@@ -141,15 +115,14 @@ public final class SSLConnection : Connection {
                 rawBuffer.deallocate(capacity: rawBufferCapacity)
             }
             let bytesRead = try writeIO.read(into: UnsafeMutableBufferPointer(start: rawBuffer, count: rawBufferCapacity))
-            _ = try raw.stream.write(UnsafeBufferPointer(start: rawBuffer, count: bytesRead), deadline: deadline)
-			try raw.stream.flush(deadline: deadline)
+            _ = try rawStream.write(UnsafeBufferPointer(start: rawBuffer, count: bytesRead), deadline: deadline)
+			try rawStream.flush(deadline: deadline)
 		} catch SSLIOError.shouldRetry { }
 	}
 
 	public func close() {
 		// TODO: http://stackoverflow.com/questions/28056056/handling-ssl-shutdown-correctly
 //		session.shutdown()
-        raw.stream.close()
+        rawStream.close()
 	}
-
 }

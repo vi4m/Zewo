@@ -37,7 +37,7 @@ public struct Server {
         }
 
         if enableContentNegotiation {
-            chain.append(ContentNegotiationMiddleware(mediaTypes: [JSON.self, URLEncodedForm.self]))
+            chain.append(ServerContentNegotiationMiddleware(mediaTypes: [JSON.self, URLEncodedForm.self]))
         }
 
         chain.append(contentsOf: middleware)
@@ -100,7 +100,7 @@ public struct Server {
         }
 
         if enableContentNegotiation {
-            chain.append(ContentNegotiationMiddleware(mediaTypes: [JSON.self, URLEncodedForm.self]))
+            chain.append(ServerContentNegotiationMiddleware(mediaTypes: [JSON.self, URLEncodedForm.self]))
         }
 
         chain.append(contentsOf: middleware)
@@ -162,7 +162,7 @@ extension Server {
 
         while !stream.closed {
             do {
-                let request = try parser.parse()
+                let request = try parser.parse(deadline: .never)
                 let response = try middleware.chain(to: responder).respond(to: request)
                 try serializer.serialize(response)
 

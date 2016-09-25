@@ -1,7 +1,6 @@
 import CHTTPParser
 import Foundation
 
-
 struct RequestParserContext {
     var method: Request.Method! = nil
     var url: URL! = nil
@@ -82,13 +81,13 @@ public final class RequestParser {
         bufferBytes.deallocate(capacity: buffer.count)
     }
 
-    public func parse() throws -> Request {
+    public func parse(deadline: Double) throws -> Request {
         while true {
             if let request = requests.popLast() {
                 return request
             }
 
-            let bytesRead = try stream.read(into: buffer)
+            let bytesRead = try stream.read(into: buffer, deadline: deadline)
             let bytesParsed = buffer.baseAddress!.withMemoryRebound(to: Int8.self, capacity: buffer.count) {
                 http_parser_execute(&parser, &parserSettings, $0, bytesRead)
             }

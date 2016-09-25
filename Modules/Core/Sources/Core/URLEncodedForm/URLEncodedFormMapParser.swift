@@ -4,9 +4,14 @@ enum URLEncodedFormMapParserError : Error {
 }
 
 public struct URLEncodedFormMapParser : MapParser {
-    public init() {}
+    private let stream: InputStream
 
-    public func parse(_ buffer: Buffer) throws -> Map {
+    public init(stream: InputStream) {
+        self.stream = stream
+    }
+
+    public func parse(deadline: Double) throws -> Map {
+        let buffer = try stream.drain(deadline: deadline)
         guard let string = try? String(buffer: buffer) else {
             throw URLEncodedFormMapParserError.unsupportedEncoding
         }

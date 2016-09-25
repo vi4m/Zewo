@@ -5,6 +5,7 @@ public enum StreamError : Error {
 
 public protocol InputStream {
     var closed: Bool { get }
+    func open(deadline: Double) throws
     func close()
     
     func read(into: UnsafeMutableBufferPointer<UInt8>, deadline: Double) throws -> Int
@@ -12,6 +13,10 @@ public protocol InputStream {
 }
 
 extension InputStream {
+    public func open() throws {
+        return try open(deadline: .never)
+    }
+
     public func read(into: UnsafeMutableBufferPointer<UInt8>) throws -> Int {
         return try read(into: into, deadline: .never)
     }
@@ -19,10 +24,22 @@ extension InputStream {
     public func read(upTo count: Int, deadline: Double = .never) throws -> Buffer {
         return try Buffer(capacity: count) { try read(into: $0, deadline: deadline) }
     }
+
+    /// Drains the `Stream` and returns the contents in a `Buffer`. At the end of this operation the stream will be closed.
+    public func drain(deadline: Double = .never) throws -> Buffer {
+        var buffer = Buffer.empty
+
+        while !self.closed, let chunk = try? self.read(upTo: 2048, deadline: deadline), chunk.count > 0 {
+            buffer.append(chunk)
+        }
+
+        return buffer
+    }
 }
 
 public protocol OutputStream {
     var closed: Bool { get }
+    func open(deadline: Double) throws
     func close()
     
     func write(_ buffer: UnsafeBufferPointer<UInt8>, deadline: Double) throws
@@ -32,6 +49,9 @@ public protocol OutputStream {
 }
 
 extension OutputStream {
+    public func open() throws {
+        return try open(deadline: .never)
+    }
     
     public func write(_ buffer: UnsafeBufferPointer<UInt8>) throws {
         try write(buffer, deadline: .never)

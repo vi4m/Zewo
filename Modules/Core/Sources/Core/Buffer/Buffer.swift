@@ -1,9 +1,10 @@
-@_exported import struct Dispatch.DispatchData
 #if os(Linux)
-import Glibc
+    import Glibc
 #else
-import Darwin
+    import Darwin
 #endif
+
+@_exported import struct Dispatch.DispatchData
 
 public typealias Byte = UInt8
 public typealias Buffer = DispatchData
@@ -25,7 +26,6 @@ extension Buffer : BufferRepresentable {
 public protocol BufferConvertible : BufferInitializable, BufferRepresentable {}
 
 extension Buffer {
-    
     public init(_ string: String) {
         self = string.utf8CString.withUnsafeBufferPointer { bufferPtr in
             guard bufferPtr.count > 1 else {
@@ -110,17 +110,13 @@ extension Buffer {
     }
 }
 
-extension Buffer: CustomDebugStringConvertible {
-    
+extension Buffer : CustomDebugStringConvertible {
     public var debugDescription: String {
         return (try? String(buffer: self)) ?? hexadecimalString()
     }
-    
 }
 
-extension Buffer: Equatable {    
-}
-
+extension Buffer : Equatable {}
 
 public func ==(lhs: Buffer, rhs: Buffer) -> Bool {
     guard lhs.count == rhs.count else {

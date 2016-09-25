@@ -35,7 +35,7 @@ public class BodyTests : XCTestCase {
     func testBufferBecomeWriter() throws {
         var body: Body = .buffer(testData)
         let writer = try body.becomeWriter()
-        let writerStream = Drain()
+        let writerStream = BufferStream()
         try writer(writerStream)
         XCTAssertFalse(body.isBuffer)
         XCTAssertFalse(body.isReader)
@@ -48,7 +48,7 @@ public class BodyTests : XCTestCase {
     }
 
     func testReaderBecomeBuffer() throws {
-        let readerSteram = Drain(buffer: testData)
+        let readerSteram = BufferStream(buffer: testData)
         var body: Body = .reader(readerSteram)
         let buffer = try body.becomeBuffer()
         XCTAssertTrue(body.isBuffer)
@@ -64,7 +64,7 @@ public class BodyTests : XCTestCase {
     }
 
     func testReaderBecomeReader() throws {
-        let readerSteram = Drain(buffer: testData)
+        let readerSteram = BufferStream(buffer: testData)
         var body: Body = .reader(readerSteram)
         let reader = try body.becomeReader()
         XCTAssertFalse(body.isBuffer)
@@ -78,10 +78,10 @@ public class BodyTests : XCTestCase {
     }
 
     func testReaderBecomeWriter() throws {
-        let readerSteram = Drain(buffer: testData)
+        let readerSteram = BufferStream(buffer: testData)
         var body: Body = .reader(readerSteram)
         let writer = try body.becomeWriter()
-        let writerStream = Drain()
+        let writerStream = BufferStream()
         try writer(writerStream)
         XCTAssertFalse(body.isBuffer)
         XCTAssertFalse(body.isReader)
@@ -130,7 +130,7 @@ public class BodyTests : XCTestCase {
             try writerStream.write(self.testData)
         }
         let writer = try body.becomeWriter()
-        let writerStream = Drain()
+        let writerStream = BufferStream()
         try writer(writerStream)
         XCTAssertFalse(body.isBuffer)
         XCTAssertFalse(body.isReader)
@@ -145,8 +145,8 @@ public class BodyTests : XCTestCase {
     func testBodyEquality() {
         let buffer = Body.buffer(testData)
 
-        let drain = Drain(buffer: testData)
-        let reader = Body.reader(drain)
+        let bufferStream = BufferStream(buffer: testData)
+        let reader = Body.reader(bufferStream)
 
         let writer = Body.writer { stream in
             try stream.write(self.testData)
@@ -157,14 +157,6 @@ public class BodyTests : XCTestCase {
         XCTAssertNotEqual(buffer, reader)
         XCTAssertNotEqual(buffer, writer)
         XCTAssertNotEqual(reader, writer)
-    }
-}
-
-extension Body {
-    mutating func forceReopenDrain() {
-        if let drain = (try! self.becomeReader()) as? Drain {
-            drain.closed = false
-        }
     }
 }
 

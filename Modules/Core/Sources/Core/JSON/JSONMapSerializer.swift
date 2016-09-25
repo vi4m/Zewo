@@ -1,84 +1,134 @@
 // This file has been modified from its original project Swift-JsonSerializer
 
-public struct JSONMapSerializer : MapSerializer {
-    let ordering: Bool
+public final class JSONMapSerializer : MapSerializer {
+    private let stream: OutputStream
+    private var ordering: Bool
+    private var deadline: Double = 0
+    private var buffer: String = ""
 
-    public init(ordering: Bool = false) {
+    public convenience init(stream: OutputStream) {
+        self.init(stream: stream, ordering: false)
+    }
+
+    public init(stream: OutputStream, ordering: Bool = false) {
+        self.stream = stream
         self.ordering = ordering
     }
 
-    public func serialize(_ map: Map) throws -> Buffer {
-        return try Buffer(serializeToString(map))
+    public func serialize(_ map: Map, deadline: Double) throws {
+        self.deadline = deadline
+        try serialize(value: map)
+        try write()
     }
 
-    public func serializeToString(_ map: Map) throws -> String {
-        switch map {
-        case .null: return "null"
-        case .bool(let bool): return String(bool)
-        case .double(let number): return String(number)
-        case .int(let number): return String(number)
-        case .string(let string): return escape(string)
-        case .array(let array): return try serialize(array)
-        case .dictionary(let dictionary): return try serialize(dictionary)
+    private func serialize(value: Map) throws {
+        switch value {
+        case .null: try append(string: "null")
+        case .bool(let bool): try append(string: String(bool))
+        case .double(let number): try append(string: String(number))
+        case .int(let number): try append(string: String(number))
+        case .string(let string): try serialize(string: string)
+        case .array(let array): try serialize(array: array)
+        case .dictionary(let dictionary): try serialize(dictionary: dictionary)
         default: throw MapError.incompatibleType
         }
     }
 
-    func serialize(_ array: [Map]) throws -> String {
-        var string = "["
+    private func serialize(array: [Map]) throws {
+        try append(string: "[")
 
         for index in 0 ..< array.count {
-            string += try serializeToString(array[index])
+            try serialize(value: array[index])
 
             if index != array.count - 1 {
-                string += ","
+                try append(string: ",")
             }
         }
 
-        return string + "]"
+        try append(string: "]")
     }
 
-    func serialize(_ dictionary: [String: Map]) throws -> String {
-        var string = "{"
+    private func serialize(dictionary: [String: Map]) throws {
+        try append(string: "{")
         var index = 0
 
         if ordering {
             for (key, value) in dictionary.sorted(by: {$0.0 < $1.0}) {
-                string += try escape(key) + ":" + serializeToString(value)
+                try serialize(string: key)
+                try append(string: ":")
+                try serialize(value: value)
 
                 if index != dictionary.count - 1 {
-                    string += ","
+                    try append(string: ",")
                 }
 
                 index += 1
             }
         } else {
-            for (key, value) in dictionary {
-                string += try escape(key) + ":" + serializeToString(value)
+            for (key, value) in dictionary{
+                try serialize(string: key)
+                try append(string: ":")
+                try serialize(value: value)
 
                 if index != dictionary.count - 1 {
-                    string += ","
+                    try append(string: ",")
                 }
-
+                
                 index += 1
             }
         }
 
-        return string + "}"
+
+        try append(string: "}")
     }
-}
 
-func escape(_ source: String) -> String {
-    var string = "\""
+    private func serialize(string: String) throws {
+        try append(string: "\"")
 
-    for character in source.characters {
-        if let escapedSymbol = escapeMapping[character] {
-            string.append(escapedSymbol)
-        } else {
-            string.append(character)
+        for character in string.characters {
+            if let escapedSymbol = escapeMapping[character] {
+                try append(string: escapedSymbol)
+            } else {
+                try append(character: character)
+            }
+        }
+
+        try append(string: "\"")
+    }
+
+    private func append(character: Character) throws {
+        buffer.append(character)
+
+        if buffer.characters.count >= 1024 {
+            try write()
         }
     }
 
-    string.append("\"")
-    return string
+    private func append(string: String) throws {
+        buffer += string
+
+        if buffer.characters.count >= 1024 {
+            try write()
+        }
+    }
+
+    private func write() throws {
+        try stream.write(buffer, deadline: deadline)
+        try stream.flush(deadline: deadline)
+        deadline = 0
+        buffer = ""
+    }
 }
+
+fileprivate let escapeMapping: [Character: String] = [
+    "\r": "\\r",
+    "\n": "\\n",
+    "\t": "\\t",
+    "\\": "\\\\",
+    "\"": "\\\"",
+
+    "\u{2028}": "\\u2028",
+    "\u{2029}": "\\u2029",
+
+    "\r\n": "\\r\\n"
+]

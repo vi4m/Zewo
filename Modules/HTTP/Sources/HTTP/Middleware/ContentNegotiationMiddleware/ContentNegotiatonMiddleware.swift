@@ -3,154 +3,118 @@ public enum ContentNegotiationMiddlewareError : Error {
     case noSuitableSerializer
 }
 
-public struct ContentNegotiationMiddleware : Middleware {
-    public let types: [MediaTypeRepresentor.Type]
-    public let mode: Mode
+func parserTypes(for mediaType: MediaType, `in` types: [MediaTypeConvertible.Type]) -> [(MediaType, MapParser.Type)] {
+    var parsers: [(MediaType, MapParser.Type)] = []
 
-    public var mediaTypes: [MediaType] {
-        return types.map({$0.mediaType})
-    }
-
-    public enum Mode {
-        case server
-        case client
-    }
-
-    public init(mediaTypes: [MediaTypeRepresentor.Type], mode: Mode = .server) {
-        self.types = mediaTypes
-        self.mode = mode
-    }
-
-    public func parsersFor(_ mediaType: MediaType) -> [(MediaType, MapParser)] {
-        var parsers: [(MediaType, MapParser)] = []
-
-        for type in types {
-            if type.mediaType.matches(other: mediaType) {
-                parsers.append(type.mediaType, type.parser)
-            }
+    for type in types {
+        if type.mediaType.matches(other: mediaType) {
+            parsers.append(type.mediaType, type.parser)
         }
-
-        return parsers
     }
 
-    public func parse(_ buffer: Buffer, mediaType: MediaType) throws -> (MediaType, Map) {
-        var lastError: Error?
+    return parsers
+}
 
-        for (mediaType, parser) in parsersFor(mediaType) {
+func firstParserType(for mediaType: MediaType, `in` types: [MediaTypeConvertible.Type]) throws -> (MediaType, MapParser.Type) {
+    for type in types {
+        if type.mediaType.matches(other: mediaType) {
+            return (type.mediaType, type.parser)
+        }
+    }
+
+    throw ContentNegotiationMiddlewareError.noSuitableParser
+}
+
+func serializerTypes(for mediaType: MediaType, `in` types: [MediaTypeConvertible.Type]) -> [(MediaType, MapSerializer.Type)] {
+    var serializers: [(MediaType, MapSerializer.Type)] = []
+
+    for type in types {
+        if type.mediaType.matches(other: mediaType) {
+            serializers.append(type.mediaType, type.serializer)
+        }
+    }
+
+    return serializers
+}
+
+func firstSerializerType(for mediaType: MediaType, `in` types: [MediaTypeConvertible.Type]) throws -> (MediaType, MapSerializer.Type) {
+    for type in types {
+        if type.mediaType.matches(other: mediaType) {
+            return (type.mediaType, type.serializer)
+        }
+    }
+
+    throw ContentNegotiationMiddlewareError.noSuitableSerializer
+}
+
+func parse(stream: InputStream, deadline: Double, mediaType: MediaType, `in` types: [MediaTypeConvertible.Type]) throws -> (MediaType, Map) {
+    let (mediaType, parserType) = try firstParserType(for: mediaType, in: types)
+
+    do {
+        let parser = parserType.init(stream: stream)
+        let content = try parser.parse(deadline: deadline)
+        return (mediaType, content)
+    } catch {
+        throw ContentNegotiationMiddlewareError.noSuitableParser
+    }
+}
+
+func parse(buffer: Buffer, deadline: Double, mediaType: MediaType, `in` types: [MediaTypeConvertible.Type]) throws -> (MediaType, Map) {
+    var lastError: Error?
+
+    for (mediaType, parserType) in parserTypes(for: mediaType, in: types) {
+        do {
+            let stream = BufferStream(buffer: buffer)
+            let parser = parserType.init(stream: stream)
+            let content = try parser.parse(deadline: deadline)
+            return (mediaType, content)
+        } catch {
+            lastError = error
+            continue
+        }
+    }
+
+    if let lastError = lastError {
+        throw lastError
+    } else {
+        throw ContentNegotiationMiddlewareError.noSuitableParser
+    }
+}
+
+func serializeToStream(from content: Map, deadline: Double, mediaTypes: [MediaType], `in` types: [MediaTypeConvertible.Type]) throws -> (MediaType, (OutputStream) throws -> Void)  {
+    for acceptedType in mediaTypes {
+        for (mediaType, serializerType) in serializerTypes(for: acceptedType, in: types) {
+            return (mediaType, { stream in
+                let serializer = serializerType.init(stream: stream)
+                try serializer.serialize(content, deadline: deadline)
+            })
+        }
+    }
+
+    throw ContentNegotiationMiddlewareError.noSuitableSerializer
+}
+
+func serializeToBuffer(from content: Map, deadline: Double, mediaTypes: [MediaType], `in` types: [MediaTypeConvertible.Type]) throws -> (MediaType, Buffer) {
+    var lastError: Error?
+
+    for acceptedType in mediaTypes {
+        for (mediaType, serializerType) in serializerTypes(for: acceptedType, in: types) {
             do {
-                return try (mediaType, parser.parse(buffer))
+                let stream = BufferStream()
+                let serializer = serializerType.init(stream: stream)
+                try serializer.serialize(content, deadline: deadline)
+                let buffer = stream.buffer
+                return (mediaType, buffer)
             } catch {
                 lastError = error
                 continue
             }
         }
-
-        if let lastError = lastError {
-            throw lastError
-        } else {
-            throw ContentNegotiationMiddlewareError.noSuitableParser
-        }
     }
 
-    func serializersFor(_ mediaType: MediaType) -> [(MediaType, MapSerializer)] {
-        var serializers: [(MediaType, MapSerializer)] = []
-
-        for type in types {
-            if type.mediaType.matches(other: mediaType) {
-                serializers.append(type.mediaType, type.serializer)
-            }
-        }
-
-        return serializers
-    }
-
-    public func serialize(_ content: Map) throws -> (MediaType, Buffer) {
-        return try serialize(content, mediaTypes: mediaTypes)
-    }
-
-    func serialize(_ content: Map, mediaTypes: [MediaType]) throws -> (MediaType, Buffer) {
-        var lastError: Error?
-
-        for acceptedType in mediaTypes {
-            for (mediaType, serializer) in serializersFor(acceptedType) {
-                do {
-                    return try (mediaType, serializer.serialize(content))
-                } catch {
-                    lastError = error
-                    continue
-                }
-            }
-        }
-
-        if let lastError = lastError {
-            throw lastError
-        } else {
-            throw ContentNegotiationMiddlewareError.noSuitableSerializer
-        }
-    }
-
-    public func respond(to request: Request, chainingTo chain: Responder) throws -> Response {
-        switch mode {
-        case .server:
-            return try respondServer(request, chain: chain)
-        case .client:
-            return try respondClient(request, chain: chain)
-        }
-    }
-
-    public func respondServer(_ request: Request, chain: Responder) throws -> Response {
-        var request = request
-
-        let body = try request.body.becomeBuffer()
-
-        if let contentType = request.contentType, !body.isEmpty {
-            do {
-                let (_, content) = try parse(body, mediaType: contentType)
-                request.content = content
-            } catch ContentNegotiationMiddlewareError.noSuitableParser {
-                throw HTTPError.unsupportedMediaType
-            }
-        }
-
-        var response = try chain.respond(to: request)
-
-        if let content = response.content {
-            do {
-                let mediaTypes = !request.accept.isEmpty ? request.accept : self.mediaTypes
-                let (mediaType, body) = try serialize(content, mediaTypes: mediaTypes)
-                response.content = nil
-                response.contentType = mediaType
-                response.body = .buffer(body)
-                response.contentLength = body.count
-            } catch ContentNegotiationMiddlewareError.noSuitableSerializer {
-                throw HTTPError.notAcceptable
-            }
-        }
-
-        return response
-    }
-
-    public func respondClient(_ request: Request, chain: Responder) throws -> Response {
-        var request = request
-
-        request.accept = mediaTypes
-
-        if let content = request.content {
-            let (mediaType, body) = try serialize(content)
-            request.contentType = mediaType
-            request.body = .buffer(body)
-            request.contentLength = body.count
-        }
-
-        var response = try chain.respond(to: request)
-
-        let body = try response.body.becomeBuffer()
-
-        if let contentType = response.contentType {
-            let (_, content) = try parse(body, mediaType: contentType)
-            response.content = content
-        }
-
-        return response
+    if let lastError = lastError {
+        throw lastError
+    } else {
+        throw ContentNegotiationMiddlewareError.noSuitableSerializer
     }
 }

@@ -9,7 +9,7 @@ public class ResponseTests : XCTestCase {
         XCTAssertEqual(response.headers, ["Content-Length": "0"])
         XCTAssertEqual(response.body, .buffer(Buffer()))
 
-        response = Response(body: Drain(buffer: "foo") as Core.InputStream)
+        response = Response(body: BufferStream(buffer: "foo"))
         XCTAssertEqual(response.status, .ok)
         XCTAssertEqual(response.version, Version(major: 1, minor: 1))
         XCTAssertEqual(response.headers, ["Transfer-Encoding": "chunked"])
@@ -54,7 +54,7 @@ public class ResponseTests : XCTestCase {
         response.upgradeConnection { (request, stream) in
             called = true
         }
-        try response.upgradeConnection?(Request(), Drain())
+        try response.upgradeConnection?(Request(), BufferStream())
         XCTAssert(called)
     }
 

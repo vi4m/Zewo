@@ -10,6 +10,10 @@ final class BodyStream : Stream {
         self.transport = transport
     }
 
+    public func open(deadline: Double) throws {
+        closed = false
+    }
+
     func close() {
         closed = true
     }

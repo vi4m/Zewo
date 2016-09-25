@@ -2,32 +2,43 @@ enum URLEncodedFormMapSerializerError : Error {
     case invalidMap
 }
 
-public struct URLEncodedFormMapSerializer : MapSerializer {
-    public init() {}
+public final class URLEncodedFormMapSerializer : MapSerializer {
+    private var buffer: String = ""
+    private let stream: OutputStream
 
-    public func serialize(_ map: Map) throws -> Buffer {
-        return try serializeToString(map).buffer
+    public init(stream: OutputStream) {
+        self.stream = stream
     }
 
-    public func serializeToString(_ map: Map) throws -> String {
+    public func serialize(_ map: Map, deadline: Double) throws {
         switch map {
-        case .dictionary(let dictionary): return try serializeDictionary(dictionary)
-        default: throw URLEncodedFormMapSerializerError.invalidMap
+        case .dictionary(let dictionary):
+            for (offset: index, element: (key: key, value: map)) in dictionary.enumerated() {
+                if index != 0 {
+                   try appendChunk("&")
+                }
+
+                try appendChunk(String(key) + "=")
+                let value = try map.asString(converting: true)
+                try appendChunk(value.percentEncoded(allowing: .uriQueryAllowed))
+            }
+        default:
+            throw URLEncodedFormMapSerializerError.invalidMap
+        }
+        try writeBuffer()
+    }
+
+    private func appendChunk(_ chunk: String) throws {
+        buffer += chunk
+
+        if buffer.characters.count >= 1024 {
+            try writeBuffer()
         }
     }
 
-    func serializeDictionary(_ object: [String: Map]) throws -> String {
-        var string = ""
-
-        for (offset: index, element: (key: key, value: map)) in object.enumerated() {
-            if index != 0 {
-                string += "&"
-            }
-            string += String(key) + "="
-            let value = try map.asString(converting: true)
-            string += value.percentEncoded(allowing: .uriQueryAllowed)
-        }
-
-        return string
+    private func writeBuffer() throws {
+        try stream.write(buffer)
+        try stream.flush()
+        buffer = ""
     }
 }

@@ -1,5 +1,3 @@
-import Foundation
-
 public enum HTTPClientError : Error {
     case invalidURIScheme
     case uriHostRequired
@@ -22,7 +20,7 @@ public final class Client : Responder {
     public let requestTimeout: Double
     public let bufferSize: Int
 
-    var connection: Connection?
+    var stream: Stream?
     var serializer: RequestSerializer?
     var parser: ResponseParser?
 
@@ -66,11 +64,11 @@ extension Client {
         var request = request
         addHeaders(to: &request)
 
-        let connection = try getConnection()
-        let serializer = getSerializer(connection: connection)
-        let parser = getParser(connection: connection)
+        let stream = try getStream()
+        let serializer = getSerializer(stream: stream)
+        let parser = getParser(stream: stream)
 
-        self.connection = connection
+        self.stream = stream
         self.serializer = serializer
         self.parser = parser
 
@@ -82,16 +80,16 @@ extension Client {
             let response = try parser.parse(deadline: requestDeadline)
 
             if let upgrade = request.upgradeConnection {
-                try upgrade(response, connection)
+                try upgrade(response, stream)
             }
 
             if response.isError || !keepAlive {
-                self.connection = nil
+                self.stream = nil
             }
 
             return response
         } catch let error as StreamError {
-            self.connection = nil
+            self.stream = nil
             throw error
         }
     }
@@ -105,15 +103,15 @@ extension Client {
         }
     }
 
-    private func getConnection() throws -> Connection {
-        if let connection = self.connection {
-            return connection
+    private func getStream() throws -> Stream {
+        if let stream = self.stream {
+            return stream
         }
 
-        let connection: Connection
+        let stream: Stream
 
         if secure {
-            connection = try TCPTLSConnection(
+            stream = try TCPTLSStream(
                 host: host,
                 port: port,
                 verifyBundle: verifyBundle,
@@ -124,29 +122,29 @@ extension Client {
                 deadline: now() + connectionTimeout
             )
         } else {
-            connection = try TCPConnection(
+            stream = try TCPStream(
                 host: host,
                 port: port,
                 deadline: now() + connectionTimeout
             )
         }
 
-        try connection.open(deadline: now() + connectionTimeout)
-        return connection
+        try stream.open(deadline: now() + connectionTimeout)
+        return stream
     }
 
-    private func getSerializer(connection: Connection) -> RequestSerializer {
+    private func getSerializer(stream: Stream) -> RequestSerializer {
         if let serializer = serializer {
             return serializer
         }
-        return RequestSerializer(stream: connection)
+        return RequestSerializer(stream: stream)
     }
 
-    private func getParser(connection: Connection) -> ResponseParser {
+    private func getParser(stream: Stream) -> ResponseParser {
         if let parser = self.parser {
             return parser
         }
-        return ResponseParser(stream: connection, bufferSize: self.bufferSize)
+        return ResponseParser(stream: stream, bufferSize: self.bufferSize)
     }
 }
 

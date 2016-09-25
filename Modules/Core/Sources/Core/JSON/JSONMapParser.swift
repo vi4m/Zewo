@@ -6,7 +6,7 @@
     import Darwin.C
 #endif
 
-public enum JSONMapParseError : Error, CustomStringConvertible {
+public enum JSONMapParserError : Error, CustomStringConvertible {
     case unexpectedTokenError(reason: String, lineNumber: Int, columnNumber: Int)
     case insufficientTokenError(reason: String, lineNumber: Int, columnNumber: Int)
     case extraTokenError(reason: String, lineNumber: Int, columnNumber: Int)
@@ -36,167 +36,161 @@ public enum JSONMapParseError : Error, CustomStringConvertible {
     }
 }
 
-public struct JSONMapParser : MapParser {
-    public init() {}
+public final class JSONMapParser : MapParser {
+    fileprivate let stream: InputStream
+    fileprivate var buffer: Buffer
+    fileprivate var deadline: Double = 0
 
-    public func parse(_ buffer: Buffer) throws -> Map {
-        return try GenericJSONMapParser(buffer).parse()
+    public init(stream: InputStream) {
+        self.stream = stream
+        self.buffer = Buffer.empty
     }
-}
-
-class GenericJSONMapParser<ByteSequence: Collection> where ByteSequence.Iterator.Element == UInt8 {
-    typealias Source = ByteSequence
-    typealias Char = Source.Iterator.Element
-
-    let source: Source
-    var cur: Source.Index
-    let end: Source.Index
 
     var lineNumber = 1
     var columnNumber = 1
 
-    init(_ source: Source) {
-        self.source = source
-        self.cur = source.startIndex
-        self.end = source.endIndex
-    }
-
-    func parse() throws -> Map {
-        let data = try parseValue()
-        skipWhitespaces()
-        if cur == end {
-            return data
-        }
-        throw extraTokenError(reason: "extra tokens found")
+    public func parse(deadline: Double) throws -> Map {
+        self.deadline = deadline
+        return try parseValue()
     }
 
     func unexpectedTokenError(reason: String) -> Error {
-        return JSONMapParseError.unexpectedTokenError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
+        return JSONMapParserError.unexpectedTokenError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
     }
 
     func insufficientTokenError(reason: String) -> Error {
-        return JSONMapParseError.insufficientTokenError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
+        return JSONMapParserError.insufficientTokenError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
     }
 
     func extraTokenError(reason: String) -> Error {
-        return JSONMapParseError.extraTokenError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
+        return JSONMapParserError.extraTokenError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
     }
 
     func nonStringKeyError(reason: String) -> Error {
-        return JSONMapParseError.nonStringKeyError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
+        return JSONMapParserError.nonStringKeyError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
     }
 
     func invalidStringError(reason: String) -> Error {
-        return JSONMapParseError.invalidStringError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
+        return JSONMapParserError.invalidStringError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
     }
 
     func invalidNumberError(reason: String) -> Error {
-        return JSONMapParseError.invalidNumberError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
+        return JSONMapParserError.invalidNumberError(reason: reason, lineNumber: lineNumber, columnNumber: columnNumber)
     }
 }
 
 // MARK: - Private
 
-extension GenericJSONMapParser {
+extension JSONMapParser {
     fileprivate func parseValue() throws -> Map {
-        skipWhitespaces()
-        if cur == end {
-            throw insufficientTokenError(reason: "unexpected end of tokens")
-        }
-
-        switch currentChar {
-        case Char(ascii: "n"): return try parseSymbol("null", .null)
-        case Char(ascii: "t"): return try parseSymbol("true", .bool(true))
-        case Char(ascii: "f"): return try parseSymbol("false", .bool(false))
-        case Char(ascii: "-"), Char(ascii: "0") ... Char(ascii: "9"): return try parseNumber()
-        case Char(ascii: "\""): return try parseString()
-        case Char(ascii: "{"): return try parseObject()
-        case Char(ascii: "["): return try parseArray()
+        try skipWhitespaces()
+        switch try getCurrentByte() {
+        case Byte(ascii: "n"): return try parseSymbol("null", .null)
+        case Byte(ascii: "t"): return try parseSymbol("true", .bool(true))
+        case Byte(ascii: "f"): return try parseSymbol("false", .bool(false))
+        case Byte(ascii: "-"), Byte(ascii: "0") ... Byte(ascii: "9"): return try parseNumber()
+        case Byte(ascii: "\""): return try parseString()
+        case Byte(ascii: "{"): return try parseObject()
+        case Byte(ascii: "["): return try parseArray()
         case (let c): throw unexpectedTokenError(reason: "unexpected token: \(c)")
         }
     }
 
-    private var currentChar: Char {
-        return source[cur]
+    private func readChunk() throws {
+        guard !stream.closed else {
+            throw insufficientTokenError(reason: "unexpected end of tokens")
+        }
+
+        let chunk = try stream.read(upTo: 1024, deadline: deadline)
+
+        guard !chunk.isEmpty else {
+            throw insufficientTokenError(reason: "unexpected end of tokens")
+        }
+
+        buffer.append(chunk)
     }
 
-    private var nextChar: Char {
-        return source[source.index(after: cur)]
+    private var bytesInBuffer: Int {
+        return buffer.count
     }
 
-    private var distanceToEnd: ByteSequence.IndexDistance {
-        return source.distance(from: cur, to: end)
+    private func getCurrentByte() throws -> Byte {
+        if bytesInBuffer == 0 {
+            try readChunk()
+        }
+        guard bytesInBuffer >= 1 else {
+            throw insufficientTokenError(reason: "unexpected end of tokens")
+        }
+        return buffer[0]
     }
 
-    private var currentSymbol: Character {
-        return Character(UnicodeScalar(currentChar))
+    private func getCurrentSymbol() throws -> Character {
+        return try Character(UnicodeScalar(getCurrentByte()))
     }
 
     private func parseSymbol(_ target: StaticString, _ iftrue: @autoclosure (Void) -> Map) throws -> Map {
-        if expect(target) {
+        if try expect(target) {
             return iftrue()
         }
-        throw unexpectedTokenError(reason: "expected \"\(target)\" but \(currentSymbol)")
+        let symbol = try getCurrentSymbol()
+        throw unexpectedTokenError(reason: "expected \"\(target)\" but got \(symbol)")
     }
 
     private func parseString() throws -> Map {
-        advance()
+        try advance()
 
         var buffer = [CChar]()
 
-        while cur != end && currentChar != Char(ascii: "\"") {
-            switch currentChar {
-            case Char(ascii: "\\"):
-                advance()
-
-                guard cur != end else {
-                    throw invalidStringError(reason: "missing double quote")
-                }
-
-                guard let escapedChar = parseEscapedChar() else {
-                    throw invalidStringError(reason: "missing double quote")
+        while try getCurrentByte() != Byte(ascii: "\"") {
+            switch try getCurrentByte() {
+            case Byte(ascii: "\\"):
+                guard let escapedChar = try parseEscapedCharacter() else {
+                    throw invalidStringError(reason: "invalid escaped character")
                 }
 
                 String(escapedChar).utf8.forEach {
                     buffer.append(CChar(bitPattern: $0))
                 }
             default:
-                buffer.append(CChar(bitPattern: currentChar))
+                buffer.append(CChar(bitPattern: try getCurrentByte()))
             }
-
-            advance()
+            try advance()
         }
 
-        guard expect("\"") else {
+        guard try expect("\"") else {
             throw invalidStringError(reason: "missing double quote")
         }
-
+        
         buffer.append(0) // trailing nul
         return .string(String(cString: buffer))
     }
 
-    private func parseEscapedChar() -> UnicodeScalar? {
-        let character = UnicodeScalar(currentChar)
+    private func parseEscapedCharacter() throws -> UnicodeScalar? {
+        try advance()
+
+        let character = UnicodeScalar(try getCurrentByte())
 
         // 'u' indicates unicode
         guard character == "u" else {
             return unescapeMapping[character] ?? character
         }
 
-        guard let surrogateValue = parseEscapedUnicodeSurrogate() else {
+        guard let surrogateValue = try parseEscapedUnicodeSurrogate() else {
             return nil
         }
 
-        // two consecutive \u#### sequences represent 32 bit unicode characters
-        if distanceToEnd > 2 && nextChar == Char(ascii: "\\") && source[source.index(cur, offsetBy: 2)] == Char(ascii: "u") {
-            advance()
-            advance()
-
-            guard let surrogatePairValue = parseEscapedUnicodeSurrogate() else {
-                return nil
+        if isHighSurrogate(surrogateValue) {
+            try advance()
+            guard try getCurrentByte() == Byte(ascii: "\\") else {
+                throw invalidStringError(reason: "Invalid escaped character.")
             }
 
-            guard isHighSurrogate(surrogateValue) else {
+            try advance()
+            guard try getCurrentByte() == Byte(ascii: "u") else {
+                throw invalidStringError(reason: "Invalid escaped character.")
+            }
+
+            guard let surrogatePairValue = try parseEscapedUnicodeSurrogate() else {
                 return nil
             }
 
@@ -227,11 +221,7 @@ extension GenericJSONMapParser {
         return isHighSurrogate(n) || isLowSurrogate(n)
     }
 
-    private func parseEscapedUnicodeSurrogate() -> UInt32? {
-        guard distanceToEnd > 4 else {
-            return nil
-        }
-
+    private func parseEscapedUnicodeSurrogate() throws -> UInt32? {
         let requiredLength = 4
 
         var length = 0
@@ -240,14 +230,15 @@ extension GenericJSONMapParser {
             guard length < requiredLength else {
                 break
             }
-            guard let d = hexToDigit(nextChar) else {
+            try advance()
+            guard let digit = hexToDigit(try getCurrentByte()) else {
                 break
             }
-            advance()
+
             length += 1
 
             value <<= 4
-            value |= d
+            value |= digit
         }
 
         guard length == requiredLength else { return nil }
@@ -255,17 +246,17 @@ extension GenericJSONMapParser {
     }
 
     private func parseNumber() throws -> Map {
-        let sign = expect("-") ? -1.0 : 1.0
+        let sign = try expect("-") ? -1.0 : 1.0
         var integer: Int64 = 0
         var actualNumberStarted = false
 
-        while cur != end {
-            if currentChar == Char(ascii: "0") && !actualNumberStarted {
-                advance()
+        while true {
+            if try getCurrentByte() == Byte(ascii: "0") && !actualNumberStarted {
+                try advance()
                 continue
             }
             actualNumberStarted = true
-            if let value = digitToInt(currentChar) {
+            if let value = digitToInt(try getCurrentByte()) {
                 let (n, overflowed) = Int64.multiplyWithOverflow(integer, 10)
                 if overflowed {
                     throw invalidNumberError(reason: "too large number")
@@ -274,7 +265,7 @@ extension GenericJSONMapParser {
             } else {
                 break
             }
-            advance()
+            try advance()
         }
 
         if integer != Int64(Double(integer)) {
@@ -284,20 +275,20 @@ extension GenericJSONMapParser {
         var fraction: Double = 0.0
         var hasFraction = false
 
-        if expect(".") {
+        if try expect(".") {
             hasFraction = true
             var factor = 0.1
             var fractionLength = 0
 
-            while cur != end {
-                if let value = digitToInt(currentChar) {
+            while true {
+                if let value = digitToInt(try getCurrentByte()) {
                     fraction += (Double(value) * factor)
                     factor /= 10
                     fractionLength += 1
                 } else {
                     break
                 }
-                advance()
+                try advance()
             }
 
             if fractionLength == 0 {
@@ -308,24 +299,24 @@ extension GenericJSONMapParser {
         var exponent: Int64 = 0
         var expSign: Int64 = 1
 
-        if expect("e") || expect("E") {
-            if expect("-") {
+        if try expect("e") || expect("E") {
+            if try expect("-") {
                 expSign = -1
             } else {
-                _ = expect("+")
+                _ = try expect("+")
             }
 
             exponent = 0
             var exponentLength = 0
 
-            while cur != end {
-                if let value = digitToInt(currentChar) {
+            while true {
+                if let value = digitToInt(try getCurrentByte()) {
                     exponent = (exponent * 10) + Int64(value)
                     exponentLength += 1
                 } else {
                     break
                 }
-                advance()
+                try advance()
             }
 
             if exponentLength == 0 {
@@ -343,29 +334,29 @@ extension GenericJSONMapParser {
     }
 
     private func parseObject() throws -> Map {
-        advance()
-        skipWhitespaces()
+        try advance()
+        try skipWhitespaces()
         var object: [String: Map] = [:]
 
-        LOOP: while cur != end && !expect("}") {
+        LOOP: while try !expect("}") {
             let keyValue = try parseValue()
 
             switch keyValue {
             case .string(let key):
-                skipWhitespaces()
+                try skipWhitespaces()
 
-                if !expect(":") {
+                if try !expect(":") {
                     throw unexpectedTokenError(reason: "missing colon (:)")
                 }
 
-                skipWhitespaces()
+                try skipWhitespaces()
                 let value = try parseValue()
                 object[key] = value
-                skipWhitespaces()
+                try skipWhitespaces()
 
-                if expect(",") {
+                if try expect(",") {
                     break
-                } else if expect("}") {
+                } else if try expect("}") {
                     break LOOP
                 } else {
                     throw unexpectedTokenError(reason: "missing comma (,)")
@@ -379,43 +370,41 @@ extension GenericJSONMapParser {
     }
 
     private func parseArray() throws -> Map {
-        advance()
-        skipWhitespaces()
+        try advance()
+        try skipWhitespaces()
 
         var array: [Map] = []
 
-        LOOP: while cur != end && !expect("]") {
+        LOOP: while try !expect("]") {
             let data = try parseValue()
-            skipWhitespaces()
+            try skipWhitespaces()
             array.append(data)
 
-            if expect(",") {
+            if try expect(",") {
                 continue
-            } else if expect("]") {
+            } else if try expect("]") {
                 break LOOP
             }
-            throw unexpectedTokenError(reason: "missing comma (,) (token: \(currentSymbol))")
+            let symbol = try getCurrentSymbol()
+            throw unexpectedTokenError(reason: "missing comma (,) (token: \(symbol))")
         }
 
         return .array(array)
     }
 
 
-    private func expect(_ target: StaticString) -> Bool {
-        if cur == end {
-            return false
-        }
-
+    private func expect(_ target: StaticString) throws -> Bool {
         if !isIdentifier(target.utf8Start.pointee) {
-            if target.utf8Start.pointee == currentChar {
-                advance()
+            let currentByte = try getCurrentByte()
+            if target.utf8Start.pointee == currentByte {
+                try advance()
                 return true
             }
 
             return false
         }
 
-        let start = cur
+        let current = buffer
         let l = lineNumber
         let c = columnNumber
 
@@ -423,36 +412,39 @@ extension GenericJSONMapParser {
         let endp = p.advanced(by: Int(target.utf8CodeUnitCount))
 
         while p != endp {
-            if p.pointee != currentChar {
-                cur = start
+            let currentByte = try getCurrentByte()
+            if p.pointee != currentByte {
+                buffer = current
                 lineNumber = l
                 columnNumber = c
                 return false
             }
             p += 1
-            advance()
+            try advance()
         }
 
         return true
     }
 
     // only "true", "false", "null" are identifiers
-    private func isIdentifier(_ char: Char) -> Bool {
+    private func isIdentifier(_ char: Byte) -> Bool {
         switch char {
-        case Char(ascii: "a") ... Char(ascii: "z"):
+        case Byte(ascii: "a") ... Byte(ascii: "z"):
             return true
         default:
             return false
         }
     }
 
-    private func advance() {
-        cur = source.index(after: cur)
+    private func advance() throws {
+        if !buffer.isEmpty {
+            buffer = buffer.subdata(in: buffer.startIndex.advanced(by: 1)..<buffer.endIndex)
+        }
+        
+        if bytesInBuffer > 0 {
+            switch try getCurrentByte() {
 
-        if cur != end {
-            switch currentChar {
-
-            case Char(ascii: "\n"):
+            case Byte(ascii: "\n"):
                 lineNumber += 1
                 columnNumber = 1
 
@@ -462,26 +454,26 @@ extension GenericJSONMapParser {
         }
     }
 
-    fileprivate func skipWhitespaces() {
-        while cur != end {
-            switch currentChar {
-            case Char(ascii: " "), Char(ascii: "\t"), Char(ascii: "\r"), Char(ascii: "\n"):
+    fileprivate func skipWhitespaces() throws {
+        while true {
+            switch try getCurrentByte() {
+            case Byte(ascii: " "), Byte(ascii: "\t"), Byte(ascii: "\r"), Byte(ascii: "\n"):
                 break
             default:
                 return
             }
-            advance()
+            try advance()
         }
     }
 }
 
-let unescapeMapping: [UnicodeScalar: UnicodeScalar] = [
+fileprivate let unescapeMapping: [UnicodeScalar: UnicodeScalar] = [
     "t": "\t",
     "r": "\r",
     "n": "\n"
 ]
 
-let escapeMapping: [Character: String] = [
+fileprivate let escapeMapping: [Character: String] = [
     "\r": "\\r",
     "\n": "\\n",
     "\t": "\\t",
@@ -494,7 +486,7 @@ let escapeMapping: [Character: String] = [
     "\r\n": "\\r\\n"
 ]
 
-let hexMapping: [UnicodeScalar: UInt32] = [
+fileprivate let hexMapping: [UnicodeScalar: UInt32] = [
     "0": 0x0,
     "1": 0x1,
     "2": 0x2,
@@ -513,7 +505,7 @@ let hexMapping: [UnicodeScalar: UInt32] = [
     "f": 0xF, "F": 0xF
 ]
 
-let digitMapping: [UnicodeScalar:Int] = [
+fileprivate let digitMapping: [UnicodeScalar:Int] = [
     "0": 0,
     "1": 1,
     "2": 2,
@@ -526,10 +518,10 @@ let digitMapping: [UnicodeScalar:Int] = [
     "9": 9
 ]
 
-func digitToInt(_ byte: UInt8) -> Int? {
+fileprivate func digitToInt(_ byte: UInt8) -> Int? {
     return digitMapping[UnicodeScalar(byte)]
 }
 
-func hexToDigit(_ byte: UInt8) -> UInt32? {
+fileprivate func hexToDigit(_ byte: UInt8) -> UInt32? {
     return hexMapping[UnicodeScalar(byte)]
 }

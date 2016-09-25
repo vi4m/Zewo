@@ -24,6 +24,10 @@ final class ServerStream : Core.Stream {
         self.closeOnFlush = closeOnFlush
     }
 
+    public func open(deadline: Double) throws {
+        closed = false
+    }
+
     func close() {
         closed = true
     }
@@ -76,7 +80,7 @@ class TestHost : Core.Host {
     }
 }
 
-enum CustomError :  Error {
+enum CustomError : Error {
     case error
 }
 

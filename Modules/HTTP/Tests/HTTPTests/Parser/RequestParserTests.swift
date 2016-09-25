@@ -55,44 +55,44 @@ let methods: [Request.Method] = [
 public class RequestParserTests : XCTestCase {
     func testInvalidMethod() {
         let data = "INVALID / HTTP/1.1\r\n\r\n"
-        let stream = Drain(buffer: data)
+        let stream = BufferStream(buffer: data)
         let parser = RequestParser(stream: stream)
-        XCTAssertThrowsError(try parser.parse())
+        XCTAssertThrowsError(try parser.parse(deadline: .never))
     }
 
     func testInvalidURL() {
         let data = "GET huehue HTTP/1.1\r\n\r\n"
-        let stream = Drain(buffer: data)
+        let stream = BufferStream(buffer: data)
         let parser = RequestParser(stream: stream)
-        XCTAssertThrowsError(try parser.parse())
+        XCTAssertThrowsError(try parser.parse(deadline: .never))
     }
 
     func testNoURL() {
         let data = "GET HTTP/1.1\r\n\r\n"
-        let stream = Drain(buffer: data)
+        let stream = BufferStream(buffer: data)
         let parser = RequestParser(stream: stream)
-        XCTAssertThrowsError(try parser.parse())
+        XCTAssertThrowsError(try parser.parse(deadline: .never))
     }
 
     func testInvalidHTTPVersion() {
         let data = "GET / HUEHUE\r\n\r\n"
-        let stream = Drain(buffer: data)
+        let stream = BufferStream(buffer: data)
         let parser = RequestParser(stream: stream)
-        XCTAssertThrowsError(try parser.parse())
+        XCTAssertThrowsError(try parser.parse(deadline: .never))
     }
 
     func testInvalidDoubleConnectMethod() {
         let data = "CONNECT / HTTP/1.1\r\n\r\nCONNECT / HTTP/1.1\r\n\r\n"
-        let stream = Drain(buffer: data)
+        let stream = BufferStream(buffer: data)
         let parser = RequestParser(stream: stream)
-        XCTAssertThrowsError(try parser.parse())
+        XCTAssertThrowsError(try parser.parse(deadline: .never))
     }
 
     func testConnectMethod() throws {
         let data = "CONNECT / HTTP/1.1\r\n\r\n"
-        let stream = Drain(buffer: data)
+        let stream = BufferStream(buffer: data)
         let parser = RequestParser(stream: stream)
-        let request = try parser.parse()
+        let request = try parser.parse(deadline: .never)
         XCTAssert(request.method == .connect)
         XCTAssert(request.url.path == "/")
         XCTAssert(request.version.major == 1)
@@ -107,11 +107,11 @@ public class RequestParserTests : XCTestCase {
             data += request
         }
 
-        let stream = Drain(buffer: data)
+        let stream = BufferStream(buffer: data)
         let parser = RequestParser(stream: stream, bufferSize: bufferSize)
 
         for _ in 0 ..< count {
-            try test(parser.parse())
+            try test(parser.parse(deadline: .never))
         }
     }
 
