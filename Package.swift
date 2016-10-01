@@ -17,7 +17,7 @@ let package = Package(
         Target(name: "HTTPServer", dependencies: ["HTTPFile", "TCP", "Venice"]),
         Target(name: "HTTPClient", dependencies: ["HTTPFile", "TCP", "Venice"]),
         Target(name: "WebSocket", dependencies: ["Core"]),
-        Target(name: "WebSocketServer", dependencies: ["WebSocket"]),
+        Target(name: "WebSocketServer", dependencies: ["WebSocket", "HTTP"]),
         Target(name: "WebSocketClient", dependencies: ["WebSocket", "HTTPClient"]),
 
         Target(name: "ExampleApplication", dependencies: ["HTTPServer"]),
