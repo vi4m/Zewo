@@ -6,6 +6,6 @@
 [subrepo]
 	remote = https://github.com/Zewo/WebSocket
 	branch = master
-	commit = 20d076bb381b0c606afe5b6b5dabfc7aca2ca887
-	parent = c9ff70348b8775fb8cba9189f41c487fbc11e093
+	commit = 4756f74fb010e91f52e32694b8311b050ed73a93
+	parent = df7ce0f2da69bf2255edec64b9486ddb37f7eb49
 	cmdver = 0.3.0
