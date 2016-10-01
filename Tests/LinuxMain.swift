@@ -33,7 +33,6 @@ var testCases = [
     testCase(PublicTests.allTests),
     testCase(StringTests.allTests),
     testCase(MapTests.allTests),
-    testCase(URLEncodedFormParserTests.allTests),
 
 
     // HTTP
@@ -46,7 +45,10 @@ var testCases = [
 
     testCase(ResponseTests.allTests),
     testCase(BasicAuthMiddlewareTests.allTests),
-    testCase(ContentNegotiationMiddlewareTests.allTests),
+    testCase(BufferClientContentNegotiationMiddlewareTests.allTests),
+    testCase(BufferServerContentNegotiationMiddlewareTests.allTests),
+    testCase(StreamClientContentNegotiationMiddlewareTests.allTests),
+    testCase(StreamServerContentNegotiationMiddlewareTests.allTests),
     testCase(LogMiddlewareTests.allTests),
     testCase(RecoveryMiddlewareTests.allTests),
     testCase(RedirectMiddlewareTests.allTests),
