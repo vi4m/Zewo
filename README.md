@@ -8,6 +8,7 @@
     <a href="http://slack.zewo.io"><img src="https://zewo-slackin.herokuapp.com/badge.svg" alt="Slack" /></a>
     <a href="https://travis-ci.org/Zewo/Zewo"><img src="https://travis-ci.org/Zewo/Zewo.svg" alt="Travis" /></a>
     <a href="https://codecov.io/gh/Zewo/Zewo"><img src="https://codecov.io/gh/Zewo/Zewo/branch/master/graph/badge.svg" alt="Codecov" /></a>
+    <a href="https://codebeat.co/projects/github-com-zewo-zewo"><img src="https://codebeat.co/badges/d580cc1f-5bdb-494b-8391-d147c7a287a1" alt="Codebeat" /></a>
     <a href="#backers"><img src="https://opencollective.com/zewo/backers/badge.svg"></a>
     <a href="#sponsors"><img src="https://opencollective.com/zewo/sponsors/badge.svg"></a>
 </p>
@@ -122,7 +123,7 @@ import PackageDescription
 let package = Package(
     name: "hello",
     dependencies: [
-        .Package(url: "https://github.com/Zewo/HTTPServer.git", majorVersion: 0, minor: 13),
+        .Package(url: "https://github.com/Zewo/HTTPServer.git", majorVersion: 0, minor: 14),
     ]
 )
 ```
@@ -134,23 +135,26 @@ let package = Package(
 ```swift
 import HTTPServer
 
+let log = LogMiddleware()
+
 let router = BasicRouter { route in
     route.get("/hello") { request in
         return Response(body: "Hello, world!")
     }
 }
 
-let server = try Server(port: 8080, responder: router)
+let server = try Server(port: 8080, middleware: [log], responder: router)
 try server.start()
 ```
 
 This code:
 
 - Imports the `HTTPServer` module
-- Creates a `BasicRouter`
+- Creates a `LogMiddleware` instance
+- Creates a `BasicRouter` instance
 - Configures a route matching any `Request` with **GET** as the HTTP method and **/hello** as the path.
 - Returns a `Response` with `"Hello, world!"` as the body for requests matching the route.
-- Creates an HTTP server that listens on port `8080`.
+- Creates an HTTP server that listens on port `8080`, enables logging and responds to requests using the router.
 - Starts the server.
 
 ### Build and run
@@ -172,7 +176,7 @@ Now open your favorite browser and go to [http://localhost:8080/hello](http://lo
 
 ![Safari Hello](Images/Safari-hello.png)
 
-By default the server will log the requests/responses which are receiveid/sent by the server.
+Since we configured logging the server will log the requests/responses which are receiveid/sent by the server.
 
 ![Terminal Log](Images/Terminal-log.png)
 
@@ -210,7 +214,7 @@ To stop the server just click the stop button ■ or use the shortcut `⌘.`.
 
 ### Deploying to Heroku
 
-Now the best part, deploying your app to production. For this we'll use [Heroku](https://www.heroku.com) which is a cloud PaaS (Platform as a Service). Heroku is great specially because it's extremely easy to use and for this example you won't have to spend a dime. So if you don't have a Heroku account [sign up for free](https://signup.heroku.com). After signing up check out the instrunctions to download and install the [heroku command line](https://devcenter.heroku.com/articles/heroku-command-line). 
+Now the best part, deploying your app to production. For this we'll use [Heroku](https://www.heroku.com) which is a cloud PaaS (Platform as a Service). Heroku is great specially because it's extremely easy to use and for this example you won't have to spend a dime. So if you don't have a Heroku account [sign up for free](https://signup.heroku.com). After signing up check out the instrunctions to download and install the [heroku command line](https://devcenter.heroku.com/articles/heroku-command-line).
 
 ⚠️ You just need to go to the part where you do `heroku login`. The part where you create your app is what we'll do here. 😉
 
@@ -218,7 +222,7 @@ Heroku works very tightly with git. So let's initialize our git repo. Go back to
 
 ```sh
 git init
-``` 
+```
 
 Cool, now before we commit we need to make some changes. First, create a file called `Procfile` at the root of your project.
 
@@ -239,18 +243,20 @@ Let's edit our `main.swift` to accomodate those changes. You can use Xcode or a 
 ```swift
 import HTTPServer
 
+let arguments = try Configuration.commandLineArguments()
+let port = arguments["port"].int ?? 8080
+let log = LogMiddleware()
+
 let router = BasicRouter { route in
     route.get("/hello") { request in
         return Response(body: "Hello, world!")
     }
 }
 
-let arguments = try Configuration.commandLineArguments()
-let port = arguments["port"].int ?? 8080
-
-let server = try Server(port: port, responder: router)
+let server = try Server(port: port, middleware: [log], responder: router)
 try server.start()
-``` 
+
+```
 
 We just added two lines. The first tries to parse the command line arguments passed to the application. The second tries to get the `port` argument as an integer, if it doesn't exists or if it's not an integer then it uses the default value `8080`.
 
@@ -273,7 +279,7 @@ git commit -am "it starts"
 Next step is to create the Heroku app. To use Swift on Heroku we need a swift buildpack. We'll use [heroku-buildpack-swift](https://github.com/kylef/heroku-buildpack-swift), a buildpack created by @kylef, the same dude that created **swiftenv**. Now that we know which buildpack to use we just need to run:
 
 ```sh
-heroku create {your-heroku-app-name} --buildpack https://github.com/kylef/heroku-buildpack-swift.git 
+heroku create {your-heroku-app-name} --buildpack https://github.com/kylef/heroku-buildpack-swift.git
 ```
 
 ⚠️ Don't forget to swap `{your-heroku-app-name}` for a nice name. Maybe something like hello-zewo-1969?
@@ -290,15 +296,17 @@ Heroku will use the buildpack to install swiftenv then Swift and its dependencie
 remote: -----> Launching...
 remote:        Released v5
 remote:        https://hello-zewo-1969.herokuapp.com/ deployed to Heroku
-remote: 
+remote:
 remote: Verifying deploy... done.
 ```
 
 That's it. Your app is now live! 😎 You can check mine on [https://hello-zewo-1969.herokuapp.com/hello](https://hello-zewo-1969.herokuapp.com/hello).
 
+⚠️ It may take a while for the page to load. Free heroku dynos sleep when there's no activity in a certain amount of time. After the dyno wakes up, subsequent access should be instantaneous.
+
 ### What's next?
 
-Check out our [organization](https://github.com/Zewo) for more. You can also take a look at our [documentation](http://zewo.readme.io). If you have any doubts you can reach us at our [slack](http://slack.zewo.io). We're very active and always ready to help.
+Check out our [organization](https://github.com/Zewo) for more. You can also take a look at our [documentation](http://docs.zewo.io). If you have any doubts you can reach us at our [slack](http://slack.zewo.io). We're very active and always ready to help.
 
 ## Support
 

@@ -10,21 +10,23 @@ public final class Client : Responder {
     public let host: String
     public let port: Int
 
-    public let verifyBundle: String?
-    public let certificate: String?
-    public let privateKey: String?
-    public let certificateChain: String?
-
     public let keepAlive: Bool
     public let connectionTimeout: Double
     public let requestTimeout: Double
     public let bufferSize: Int
 
+    public let certificatePath: String?
+    public let privateKeyPath: String?
+    public let verifyBundlePath: String?
+    public let certificateChainPath: String?
+
+    let addUserAgent: Bool
+
     var stream: Stream?
     var serializer: RequestSerializer?
     var parser: MessageParser?
 
-    public init(url: URL, configuration: Map = nil) throws {
+    public init(url: URL, bufferSize: Int = 4096, connectionTimeout: Double = 3.minutes, requestTimeout: Double = 30.seconds, certificatePath: String? = nil, privateKeyPath: String? = nil, certificateChainPath: String? = nil, verifyBundlePath: String? = nil, keepAlive: Bool = true, addUserAgent: Bool = true) throws {
         self.secure = try isSecure(url: url)
 
         let (host, port) = try getHostPort(url: url)
@@ -32,24 +34,36 @@ public final class Client : Responder {
         self.host = host
         self.port = port
 
-        self.verifyBundle = configuration["tls", "backlog"].string
-        self.certificate = configuration["tls", "reusePort"].string
-        self.privateKey = configuration["tls", "reusePort"].string
-        self.certificateChain = configuration["tls", "reusePort"].string
+        self.bufferSize = bufferSize
+        self.connectionTimeout = connectionTimeout
+        self.requestTimeout = requestTimeout
 
-        self.keepAlive = configuration["keepAlive"].bool ?? true
-        self.connectionTimeout = configuration["connectionTimeout"].double ?? 3.minutes
-        self.requestTimeout = configuration["requestTimeout"].double ?? 30.seconds
+        self.certificatePath = certificatePath
+        self.privateKeyPath = privateKeyPath
+        self.certificateChainPath = certificateChainPath
+        self.verifyBundlePath = verifyBundlePath
 
-        self.bufferSize = configuration["bufferSize"].int ?? 2048
+        self.addUserAgent = addUserAgent
+
+        self.keepAlive = keepAlive
     }
 
-    public convenience init(url: String, configuration: Map = nil) throws {
+    public convenience init(url: String, bufferSize: Int = 4096, connectionTimeout: Double = 3.minutes, requestTimeout: Double = 30.seconds, certificatePath: String? = nil, privateKeyPath: String? = nil, verifyBundlePath: String? = nil, keepAlive: Bool = true, addUserAgent: Bool = true) throws {
         guard let url = URL(string: url) else {
             throw URLError.invalidURL
         }
 
-        try self.init(url: url, configuration: configuration)
+        try self.init(
+            url: url,
+            bufferSize: bufferSize,
+            connectionTimeout: connectionTimeout,
+            requestTimeout: requestTimeout,
+            certificatePath: certificatePath,
+            privateKeyPath: privateKeyPath,
+            verifyBundlePath: verifyBundlePath,
+            keepAlive: keepAlive,
+            addUserAgent: addUserAgent
+        )
     }
 }
 
@@ -78,25 +92,43 @@ extension Client {
             // TODO: Add deadline to serializer
             // TODO: Deal with multiple responses
 
+            // send the request down the stream
             try serializer.serialize(request, deadline: requestDeadline)
-            
-            var response: Response!
+
             while !stream.closed {
                 let chunk = try stream.read(upTo: bufferSize, deadline: requestDeadline)
-                for message in try parser.parse(chunk) {
-                    response = message as! Response
+
+                guard let message = try parser.parse(chunk).first else {
+                    // if theres no message, loop and read more
+                    continue
                 }
+
+                // we made the parser in response mode, so this is "safe"
+                let response = message as! Response
+
+                if let upgrade = request.upgradeConnection {
+                    // hand off the stream to something else, for
+                    // example this turn into a websocket connection
+                    try upgrade(response, stream)
+                }
+
+                // if the stream is not keepalive,
+                //   the transaction is finished
+                // if the response is an error,
+                //   the transaction is finished (even if keepalive)
+                // if the stream is keepalive,
+                //   it can be reused for more messages
+                if response.isError || !keepAlive {
+                    self.stream = nil
+                    stream.close()
+                }
+
+                return response
             }
 
-            if let upgrade = request.upgradeConnection {
-                try upgrade(response, stream)
-            }
+            // stream closed before we got a response out of it
+            throw StreamError.closedStream
 
-            if response.isError || !keepAlive {
-                self.stream = nil
-            }
-
-            return response
         } catch let error as StreamError {
             self.stream = nil
             throw error
@@ -104,11 +136,14 @@ extension Client {
     }
 
     private func addHeaders(to request: inout Request) {
-        request.host = "\(host):\(port)"
-        request.userAgent = "Zewo"
+        request.host = request.host ?? "\(host):\(port)"
 
-        if !keepAlive && request.connection == nil {
-            request.connection = "close"
+        if addUserAgent {
+            request.userAgent = request.userAgent ?? "Zewo"
+        }
+
+        if !keepAlive {
+            request.connection = request.connection ?? "close"
         }
     }
 
@@ -123,10 +158,10 @@ extension Client {
             stream = try TCPTLSStream(
                 host: host,
                 port: port,
-                verifyBundle: verifyBundle,
-                certificate: certificate,
-                privateKey: privateKey,
-                certificateChain: certificateChain,
+                certificatePath: certificatePath,
+                privateKeyPath: privateKeyPath,
+                certificateChainPath: certificateChainPath,
+                verifyBundle: verifyBundlePath,
                 sniHostname: host,
                 deadline: now() + connectionTimeout
             )

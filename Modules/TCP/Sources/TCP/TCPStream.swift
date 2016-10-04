@@ -1,5 +1,5 @@
 import CLibvenice
-import Core
+import Axis
 
 public final class TCPStream : Stream {
     public var ip: IP
@@ -21,7 +21,7 @@ public final class TCPStream : Stream {
 
     public func open(deadline: Double) throws {
         guard let socket = tcpconnect(ip.address, deadline.int64milliseconds) else {
-            throw TCPError.failedToCreateSocket
+            throw SystemError.lastOperationError!
         }
         try ensureLastOperationSucceeded()
         self.socket = socket
@@ -37,9 +37,9 @@ public final class TCPStream : Stream {
         }
         
         let bytesWritten = tcpsend(socket, buffer.baseAddress!, buffer.count, deadline.int64milliseconds)
-        try ensureLastOperationSucceeded()
         
         guard bytesWritten == buffer.count else {
+            try ensureLastOperationSucceeded()
             throw SystemError.other(errorNumber: -1)
         }
     }

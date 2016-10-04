@@ -7,5 +7,5 @@
 	remote = https://github.com/Zewo/UDP
 	branch = master
 	commit = c7bad36fa928d5bda0914a5f0e48907cba97243a
-	parent = 9394b4aeceee67ef6cfa594e9c9aebf755baecfa
+	parent = b758d5c3d04693a2d3b6f59e6b391821a07f0edb
 	cmdver = 0.3.0
