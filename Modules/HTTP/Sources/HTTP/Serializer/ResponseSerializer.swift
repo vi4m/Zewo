@@ -39,8 +39,11 @@ public class ResponseSerializer {
         case .buffer(let buffer):
             try stream.write(buffer, deadline: deadline)
         case .reader(let reader):
+            var readBuffer = UnsafeMutableBufferPointer<Byte>(capacity: bufferSize)
+            defer { readBuffer.deallocate(capacity: bufferSize) }
+
             while !reader.closed {
-                let buffer = try reader.read(upTo: bufferSize, deadline: deadline)
+                let buffer = try reader.read(into: readBuffer, deadline: deadline)
                 
                 guard !buffer.isEmpty else {
                     break
