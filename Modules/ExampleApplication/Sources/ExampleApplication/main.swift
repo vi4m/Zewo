@@ -10,8 +10,12 @@ let router = BasicRouter { route in
         let file = try File(path: "/Users/paulofaria/Desktop/book.pdf")
         return Response(body: file)
     }
+
+    route.get("/newer-file") { request in
+        return Response(filePath: "/Users/paulofaria/Desktop/book.pdf")
+    }
 }
 
-let server = try Server(port: 8888, responder: router)
+let server = try Server(port: 8383, bufferSize: Int(2E6), responder: router)
 try server.start()
 

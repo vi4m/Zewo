@@ -1,6 +1,7 @@
 public enum StreamError : Error {
     case closedStream
     case timeout
+    case writeFileUnsupported
 }
 
 public protocol InputStream {
@@ -84,6 +85,7 @@ public protocol OutputStream {
     func write(_ buffer: UnsafeBufferPointer<Byte>, deadline: Double) throws
     func write(_ buffer: Buffer, deadline: Double) throws
     func write(_ buffer: BufferRepresentable, deadline: Double) throws
+    func write(filePath: String, deadline: Double) throws
     func flush(deadline: Double) throws
 }
 
@@ -107,6 +109,10 @@ extension OutputStream {
             return
         }
         try bytes.withUnsafeBufferPointer { try self.write($0, deadline: deadline) }
+    }
+
+    public func write(filePath: String, deadline: Double) throws {
+        throw StreamError.writeFileUnsupported
     }
 }
 

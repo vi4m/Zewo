@@ -24,13 +24,15 @@ public final class File : Stream {
     private let io: DispatchIO
     private let path: String
     private let fileDescriptor: FileDescriptor
+    private let semaphore = try! Semaphore()
+    private let queue = DispatchQueue.global()
     public private(set) var closed = false
 
     public init(path: String, mode: Mode = .read) throws {
         let fileDescriptor = try openFile(path: path, mode: mode)
         self.path = path
         self.fileDescriptor = fileDescriptor
-        self.io = DispatchIO(type: .stream, fileDescriptor: fileDescriptor, queue: DispatchQueue.main) { _ in
+        self.io = DispatchIO(type: .stream, fileDescriptor: fileDescriptor, queue: queue) { _ in
             closeFile(fileDescriptor: fileDescriptor)
         }
     }
@@ -55,11 +57,10 @@ public final class File : Stream {
             return UnsafeBufferPointer()
         }
 
-        let semaphore = try Semaphore()
         var resultError: Error?
         var bytesRead = 0
 
-        io.read(offset: 0, length: readBuffer.count, queue: DispatchQueue.global()) { (done, data, errorNumber) in
+        io.read(offset: 0, length: readBuffer.count, queue: queue) { (done, data, errorNumber) in
             if let error = SystemError(errorNumber: errorNumber) {
                 resultError = error
             }
@@ -71,7 +72,7 @@ public final class File : Stream {
             }
 
             if done {
-                semaphore.signal()
+                self.semaphore.signal()
             }
         }
 
@@ -91,17 +92,16 @@ public final class File : Stream {
             return
         }
 
-        let semaphore = try Semaphore()
         var resultError: Error?
         let data = DispatchData(bytesNoCopy: writeBuffer, deallocator: .custom(nil, {}))
 
-        io.write(offset: 0, data: data, queue: DispatchQueue.global()) { (done, data, errorNumber) in
+        io.write(offset: 0, data: data, queue: queue) { (done, data, errorNumber) in
             if let error = SystemError(errorNumber: errorNumber) {
                 resultError = error
             }
 
             if done {
-                semaphore.signal()
+                self.semaphore.signal()
             }
         }
 

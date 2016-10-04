@@ -60,6 +60,8 @@ public class ResponseSerializer {
             let body = BodyStream(stream)
             try writer(body)
             try stream.write("0\r\n\r\n", deadline: deadline)
+        case .file(let filePath):
+            try stream.write(filePath: filePath, deadline: deadline)
         }
 
         try stream.flush(deadline: deadline)
