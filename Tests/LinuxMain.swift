@@ -1,5 +1,5 @@
 import XCTest
-import CoreTests
+import AxisTests
 import FileTests
 // import HTTPClientTests
 // import HTTPFileTests
@@ -10,6 +10,7 @@ import IPTests
 import POSIXTests
 import ReflectionTests
 import TCPTests
+import UDPTests
 import VeniceTests
 
 var testCases = [
@@ -19,7 +20,7 @@ var testCases = [
     testCase(ThreadTests.allTests),
     testCase(LockTests.allTests),
 
-    // Core
+    // Axis
     testCase(JSONTests.allTests),
     testCase(LoggerTests.allTests),
     testCase(InternalTests.allTests),
@@ -28,7 +29,6 @@ var testCases = [
     testCase(PublicTests.allTests),
     testCase(StringTests.allTests),
     testCase(MapTests.allTests),
-    testCase(URLEncodedFormParserTests.allTests),
 
 
     // HTTP
@@ -41,7 +41,10 @@ var testCases = [
 
     testCase(ResponseTests.allTests),
     testCase(BasicAuthMiddlewareTests.allTests),
-    testCase(ContentNegotiationMiddlewareTests.allTests),
+    testCase(BufferClientContentNegotiationMiddlewareTests.allTests),
+    testCase(BufferServerContentNegotiationMiddlewareTests.allTests),
+    testCase(StreamClientContentNegotiationMiddlewareTests.allTests),
+    testCase(StreamServerContentNegotiationMiddlewareTests.allTests),
     testCase(LogMiddlewareTests.allTests),
     testCase(RecoveryMiddlewareTests.allTests),
     testCase(RedirectMiddlewareTests.allTests),
@@ -54,6 +57,8 @@ var testCases = [
     testCase(TrieRouteMatcherTests.allTests),
     testCase(HTTPSerializerTests.allTests),
     testCase(ServerTests.allTests),
+
+    testCase(UDPSocketTests.allTests),
 
     // Venice
     testCase(CoroutineTests.allTests),

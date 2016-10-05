@@ -1,5 +1,3 @@
-import Foundation
-
 public enum HTTPClientError : Error {
     case invalidURIScheme
     case uriHostRequired
@@ -12,21 +10,23 @@ public final class Client : Responder {
     public let host: String
     public let port: Int
 
-    public let verifyBundle: String?
-    public let certificate: String?
-    public let privateKey: String?
-    public let certificateChain: String?
-
     public let keepAlive: Bool
     public let connectionTimeout: Double
     public let requestTimeout: Double
     public let bufferSize: Int
 
-    var connection: Connection?
-    var serializer: RequestSerializer?
-    var parser: ResponseParser?
+    public let certificatePath: String?
+    public let privateKeyPath: String?
+    public let verifyBundlePath: String?
+    public let certificateChainPath: String?
 
-    public init(url: URL, configuration: Map = nil) throws {
+    let addUserAgent: Bool
+
+    var stream: Stream?
+    var serializer: RequestSerializer?
+    var parser: MessageParser?
+
+    public init(url: URL, bufferSize: Int = 4096, connectionTimeout: Double = 3.minutes, requestTimeout: Double = 30.seconds, certificatePath: String? = nil, privateKeyPath: String? = nil, certificateChainPath: String? = nil, verifyBundlePath: String? = nil, keepAlive: Bool = true, addUserAgent: Bool = true) throws {
         self.secure = try isSecure(url: url)
 
         let (host, port) = try getHostPort(url: url)
@@ -34,24 +34,36 @@ public final class Client : Responder {
         self.host = host
         self.port = port
 
-        self.verifyBundle = configuration["tls", "backlog"].string
-        self.certificate = configuration["tls", "reusePort"].string
-        self.privateKey = configuration["tls", "reusePort"].string
-        self.certificateChain = configuration["tls", "reusePort"].string
+        self.bufferSize = bufferSize
+        self.connectionTimeout = connectionTimeout
+        self.requestTimeout = requestTimeout
 
-        self.keepAlive = configuration["keepAlive"].bool ?? true
-        self.connectionTimeout = configuration["connectionTimeout"].double ?? 3.minutes
-        self.requestTimeout = configuration["requestTimeout"].double ?? 30.seconds
+        self.certificatePath = certificatePath
+        self.privateKeyPath = privateKeyPath
+        self.certificateChainPath = certificateChainPath
+        self.verifyBundlePath = verifyBundlePath
 
-        self.bufferSize = configuration["bufferSize"].int ?? 2048
+        self.addUserAgent = addUserAgent
+
+        self.keepAlive = keepAlive
     }
 
-    public convenience init(url: String, configuration: Map = nil) throws {
+    public convenience init(url: String, bufferSize: Int = 4096, connectionTimeout: Double = 3.minutes, requestTimeout: Double = 30.seconds, certificatePath: String? = nil, privateKeyPath: String? = nil, verifyBundlePath: String? = nil, keepAlive: Bool = true, addUserAgent: Bool = true) throws {
         guard let url = URL(string: url) else {
             throw URLError.invalidURL
         }
 
-        try self.init(url: url, configuration: configuration)
+        try self.init(
+            url: url,
+            bufferSize: bufferSize,
+            connectionTimeout: connectionTimeout,
+            requestTimeout: requestTimeout,
+            certificatePath: certificatePath,
+            privateKeyPath: privateKeyPath,
+            verifyBundlePath: verifyBundlePath,
+            keepAlive: keepAlive,
+            addUserAgent: addUserAgent
+        )
     }
 }
 
@@ -66,11 +78,11 @@ extension Client {
         var request = request
         addHeaders(to: &request)
 
-        let connection = try getConnection()
-        let serializer = getSerializer(connection: connection)
-        let parser = getParser(connection: connection)
+        let stream = try getStream()
+        let serializer = getSerializer(stream: stream)
+        let parser = getParser()
 
-        self.connection = connection
+        self.stream = stream
         self.serializer = serializer
         self.parser = parser
 
@@ -78,75 +90,106 @@ extension Client {
 
         do {
             // TODO: Add deadline to serializer
-            try serializer.serialize(request)
-            let response = try parser.parse(deadline: requestDeadline)
+            // TODO: Deal with multiple responses
 
-            if let upgrade = request.upgradeConnection {
-                try upgrade(response, connection)
+            // send the request down the stream
+            try serializer.serialize(request, deadline: requestDeadline)
+
+            while !stream.closed {
+                let chunk = try stream.read(upTo: bufferSize, deadline: requestDeadline)
+
+                guard let message = try parser.parse(chunk).first else {
+                    // if theres no message, loop and read more
+                    continue
+                }
+
+                // we made the parser in response mode, so this is "safe"
+                let response = message as! Response
+
+                if let upgrade = request.upgradeConnection {
+                    // hand off the stream to something else, for
+                    // example this turn into a websocket connection
+                    try upgrade(response, stream)
+                }
+
+                // if the stream is not keepalive,
+                //   the transaction is finished
+                // if the response is an error,
+                //   the transaction is finished (even if keepalive)
+                // if the stream is keepalive,
+                //   it can be reused for more messages
+                if response.isError || !keepAlive {
+                    self.stream = nil
+                    stream.close()
+                }
+
+                return response
             }
 
-            if response.isError || !keepAlive {
-                self.connection = nil
-            }
+            // stream closed before we got a response out of it
+            throw StreamError.closedStream
 
-            return response
         } catch let error as StreamError {
-            self.connection = nil
+            self.stream = nil
             throw error
         }
     }
 
     private func addHeaders(to request: inout Request) {
-        request.host = "\(host):\(port)"
-        request.userAgent = "Zewo"
+        request.host = request.host ?? "\(host):\(port)"
 
-        if !keepAlive && request.connection == nil {
-            request.connection = "close"
+        if addUserAgent {
+            request.userAgent = request.userAgent ?? "Zewo"
+        }
+
+        if !keepAlive {
+            request.connection = request.connection ?? "close"
         }
     }
 
-    private func getConnection() throws -> Connection {
-        if let connection = self.connection {
-            return connection
+    private func getStream() throws -> Stream {
+        if let stream = self.stream {
+            return stream
         }
 
-        let connection: Connection
+        let stream: Stream
 
         if secure {
-            connection = try TCPTLSConnection(
+            stream = try TCPTLSStream(
                 host: host,
                 port: port,
-                verifyBundle: verifyBundle,
-                certificate: certificate,
-                privateKey: privateKey,
-                certificateChain: certificateChain,
+                certificatePath: certificatePath,
+                privateKeyPath: privateKeyPath,
+                certificateChainPath: certificateChainPath,
+                verifyBundle: verifyBundlePath,
                 sniHostname: host,
                 deadline: now() + connectionTimeout
             )
         } else {
-            connection = try TCPConnection(
+            stream = try TCPStream(
                 host: host,
                 port: port,
                 deadline: now() + connectionTimeout
             )
         }
 
-        try connection.open(deadline: now() + connectionTimeout)
-        return connection
+        try stream.open(deadline: now() + connectionTimeout)
+        return stream
     }
 
-    private func getSerializer(connection: Connection) -> RequestSerializer {
+    private func getSerializer(stream: Stream) -> RequestSerializer {
         if let serializer = serializer {
             return serializer
         }
-        return RequestSerializer(stream: connection)
+        return RequestSerializer(stream: stream)
     }
 
-    private func getParser(connection: Connection) -> ResponseParser {
+
+    private func getParser() -> MessageParser {
         if let parser = self.parser {
             return parser
         }
-        return ResponseParser(stream: connection, bufferSize: self.bufferSize)
+        return MessageParser(mode: .response)
     }
 }
 

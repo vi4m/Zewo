@@ -1,5 +1,5 @@
 import COpenSSL
-import Core
+import Axis
 
 public enum SSLIOError: Error {
     case io(description: String)
@@ -32,9 +32,8 @@ public class IO {
 
 	public convenience init(buffer: BufferRepresentable) throws {
 		try self.init()
-        let bufferBuffer = buffer.buffer
-        _ = try bufferBuffer.withUnsafeBytes {
-            try write(UnsafeBufferPointer<UInt8>(start: $0, count: bufferBuffer.count))
+        _ = try buffer.buffer.bytes.withUnsafeBufferPointer {
+            try write($0)
         }
         
 	}
@@ -51,7 +50,8 @@ public class IO {
 	public var shouldRetry: Bool {
 		return (bio!.pointee.flags & BIO_FLAGS_SHOULD_RETRY) != 0
 	}
-    
+
+    // Make this all or nothing
     public func write(_ buffer: UnsafeBufferPointer<UInt8>) throws -> Int {
         guard !buffer.isEmpty else {
             return 0

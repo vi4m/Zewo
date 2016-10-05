@@ -8,118 +8,37 @@ public struct Server {
     public let port: Int
     public let bufferSize: Int
 
-    public init(host: String = "0.0.0.0", port: Int = 8080, middleware: [Middleware] = [], responder: Responder, failure: @escaping (Error) -> Void =  Server.log(error:)) throws {
-        let backlog = 128
-        let reusePort = false
-
-        let bufferSize = 2048
-        let enableLog = true
-        let enableSession = true
-        let enableContentNegotiation = true
-
+    public init(host: String = "0.0.0.0", port: Int = 8080, backlog: Int = 128, reusePort: Bool = false, bufferSize: Int = 4096, middleware: [Middleware] = [], responder: ResponderRepresentable, failure: @escaping (Error) -> Void =  Server.log(error:)) throws {
         self.tcpHost = try TCPHost(
-            configuration: [
-                "host": Map(host),
-                "port": Map(port),
-                "backlog": Map(backlog),
-                "reusePort": Map(reusePort),
-                ]
+            host: host,
+            port: port,
+            backlog: backlog,
+            reusePort: reusePort
         )
-
-        var chain: [Middleware] = []
-
-        if enableLog {
-            chain.append(LogMiddleware())
-        }
-
-        if enableSession {
-            chain.append(SessionMiddleware())
-        }
-
-        if enableContentNegotiation {
-            chain.append(ContentNegotiationMiddleware(mediaTypes: [JSON.self, URLEncodedForm.self]))
-        }
-
-        chain.append(contentsOf: middleware)
-
         self.host = host
         self.port = port
         self.bufferSize = bufferSize
-        self.middleware = chain
-        self.responder = responder
+        self.middleware = middleware
+        self.responder = responder.responder
         self.failure = failure
     }
 
-    public init(configuration: Map, middleware: [Middleware], responder: Responder, failure: @escaping (Error) -> Void =  Server.log(error:)) throws {
-        let host = configuration["tcp", "host"].string ?? "0.0.0.0"
-        let port = configuration["tcp", "port"].int ?? 8080
-        let backlog = configuration["tcp", "backlog"].int ?? 128
-        let reusePort = configuration["tcp", "reusePort"].bool ?? false
-
-        let certificate = configuration["tls", "certificate"].string
-        let privateKey = configuration["tls", "privateKey"].string
-        let certificateChain = configuration["tls", "certificateChain"].string
-
-        let bufferSize = configuration["bufferSize"].int ?? 2048
-        let enableLog = configuration["log"].bool ?? true
-        let enableSession = configuration["session"].bool ?? true
-        let enableContentNegotiation = configuration["contentNegotiation"].bool ?? true
-
-        if let c = certificate, let pk = privateKey {
-            self.tcpHost = try TCPTLSHost(
-                configuration: [
-                    "host": Map(host),
-                    "port": Map(port),
-                    "backlog": Map(backlog),
-                    "reusePort": Map(reusePort),
-
-                    "certificate": Map(c),
-                    "privateKey": Map(pk),
-                    "certificateChain": Map(certificateChain),
-                ]
-            )
-        } else {
-            self.tcpHost = try TCPHost(
-                configuration: [
-                    "host": Map(host),
-                    "port": Map(port),
-                    "backlog": Map(backlog),
-                    "reusePort": Map(reusePort),
-                ]
-            )
-        }
-
-        var chain: [Middleware] = []
-
-        if enableLog {
-            chain.append(LogMiddleware())
-        }
-
-        if enableSession {
-            chain.append(SessionMiddleware())
-        }
-
-        if enableContentNegotiation {
-            chain.append(ContentNegotiationMiddleware(mediaTypes: [JSON.self, URLEncodedForm.self]))
-        }
-
-        chain.append(contentsOf: middleware)
-
+    public init(host: String = "0.0.0.0", port: Int = 8080, backlog: Int = 128, reusePort: Bool = false, bufferSize: Int = 4096, certificatePath: String, privateKeyPath: String, certificateChainPath: String? = nil, middleware: [Middleware] = [], responder: ResponderRepresentable, failure: @escaping (Error) -> Void =  Server.log(error:)) throws {
+        self.tcpHost = try TCPTLSHost(
+            host: host,
+            port: port,
+            backlog: backlog,
+            reusePort: reusePort,
+            certificatePath: certificatePath,
+            privateKeyPath: privateKeyPath,
+            certificateChainPath: certificateChainPath
+        )
         self.host = host
         self.port = port
         self.bufferSize = bufferSize
-        self.middleware = chain
-        self.responder = responder
+        self.middleware = middleware
+        self.responder = responder.responder
         self.failure = failure
-    }
-
-    public init(configuration: Map, middleware: [Middleware] = [], responder representable: ResponderRepresentable, failure: @escaping (Error) -> Void = Server.log(error:)) throws {
-        try self.init(
-            configuration: configuration,
-            middleware: middleware,
-            responder: representable.responder,
-            failure: failure
-        )
     }
 }
 
@@ -146,7 +65,7 @@ extension Server {
         printHeader()
         try retry(times: 10, waiting: 5.seconds) {
             while true {
-                let stream = try tcpHost.accept()
+                let stream = try tcpHost.accept(deadline: .never)
                 co { do { try self.process(stream: stream) } catch { self.failure(error) } }
             }
         }
@@ -157,22 +76,31 @@ extension Server {
     }
 
     public func process(stream: Stream) throws {
-        let parser = RequestParser(stream: stream, bufferSize: bufferSize)
+        let buffer = UnsafeMutableBufferPointer<Byte>(capacity: bufferSize)
+        defer { buffer.deallocate(capacity: bufferSize) }
+
+        let parser = MessageParser(mode: .request)
         let serializer = ResponseSerializer(stream: stream, bufferSize: bufferSize)
 
         while !stream.closed {
             do {
-                let request = try parser.parse()
-                let response = try middleware.chain(to: responder).respond(to: request)
-                try serializer.serialize(response)
-
-                if let upgrade = response.upgradeConnection {
-                    try upgrade(request, stream)
-                    stream.close()
-                }
-
-                if !request.isKeepAlive {
-                    stream.close()
+                // TODO: Add timeout parameter
+                let bytesRead = try stream.read(into: buffer, deadline: 30.seconds.fromNow())
+                
+                for message in try parser.parse(bytesRead) {
+                    let request = message as! Request
+                    let response = try middleware.chain(to: responder).respond(to: request)
+                    // TODO: Add timeout parameter
+                    try serializer.serialize(response, deadline: 5.minutes.fromNow())
+                    
+                    if let upgrade = response.upgradeConnection {
+                        try upgrade(request, stream)
+                        stream.close()
+                    }
+                    
+                    if !request.isKeepAlive {
+                        stream.close()
+                    }
                 }
             } catch SystemError.brokenPipe {
                 break
@@ -180,9 +108,9 @@ extension Server {
                 if stream.closed {
                     break
                 }
-
+                
                 let (response, unrecoveredError) = Server.recover(error: error)
-                try serializer.serialize(response)
+                try serializer.serialize(response, deadline: .never)
 
                 if let error = unrecoveredError {
                     throw error
