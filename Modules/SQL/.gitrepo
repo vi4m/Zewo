@@ -6,6 +6,6 @@
 [subrepo]
 	remote = https://github.com/Zewo/SQL
 	branch = master
-	commit = 360d9e5203654f6ca5be85d598c55217bcf1cc63
-	parent = 63e7d7656355f62e9f463fd7171ad0c2c30d2a91
+	commit = 84d84d4b707f255f105451e5d9f6eab0619e5fb3
+	parent = faad66dc446a6c63308912d38d1e57230adac6ca
 	cmdver = 0.3.0
