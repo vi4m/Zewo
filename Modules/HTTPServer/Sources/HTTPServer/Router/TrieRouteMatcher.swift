@@ -116,18 +116,6 @@ public struct TrieRouteMatcher {
     }
 }
 
-extension Dictionary {
-    func mapValues<T>(_ transform: (Value) -> T) -> [Key: T] {
-        var dictionary: [Key: T] = [:]
-        
-        for (key, value) in self {
-            dictionary[key] = transform(value)
-        }
-        
-        return dictionary
-    }
-}
-
 extension String {
     fileprivate var pathComponents: [String] {
         let components = unicodeScalars.split(separator: "/").map(String.init)
