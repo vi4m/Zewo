@@ -6,11 +6,8 @@ public struct TrieRouteMatcher {
         self.routes = routes
 
         for route in routes {
-            // break into components
-            let components = route.path.split(separator: "/")
-
-            // insert components into trie with route being the ending payload
-            routesTrie.insert(components, payload: route)
+            // insert path components into trie with route being the ending payload
+            routesTrie.insert(route.path.pathComponents, payload: route)
         }
 
         // ensure parameter paths are processed later than static paths
@@ -30,13 +27,12 @@ public struct TrieRouteMatcher {
     }
 
     public func match(_ request: Request) -> Route? {
-        let path = request.path!
-        let components = path.unicodeScalars.split(separator: "/").map(String.init)
+        let components = request.path!.pathComponents
         var parameters: [String: String] = [:]
 
         let matched = searchForRoute(
             head: routesTrie,
-            components: (components.isEmpty ? [""] : components).makeIterator(),
+            components: components.makeIterator(),
             parameters: &parameters
         )
 
@@ -129,5 +125,12 @@ extension Dictionary {
         }
         
         return dictionary
+    }
+}
+
+extension String {
+    fileprivate var pathComponents: [String] {
+        let components = unicodeScalars.split(separator: "/").map(String.init)
+        return (components.isEmpty ? [""] : components)
     }
 }
