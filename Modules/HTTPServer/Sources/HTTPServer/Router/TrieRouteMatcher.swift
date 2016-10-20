@@ -36,7 +36,7 @@ public struct TrieRouteMatcher {
 
         let matched = searchForRoute(
             head: routesTrie,
-            components: components.makeIterator(),
+            components: (components.isEmpty ? [""] : components).makeIterator(),
             parameters: &parameters
         )
 
