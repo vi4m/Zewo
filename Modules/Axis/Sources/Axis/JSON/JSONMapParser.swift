@@ -52,8 +52,6 @@ public final class JSONMapParser : MapParser {
 
     fileprivate var handle: yajl_handle!
 
-    private var started = false
-
     public convenience init() {
         self.init(options: [])
     }
@@ -82,12 +80,6 @@ public final class JSONMapParser : MapParser {
     @discardableResult
     public func parse(_ bytes: UnsafeBufferPointer<Byte>) throws -> Map? {
         let final = bytes.isEmpty
-
-        if !started {
-            started = true
-            // no bytes before we even started? empty json
-            if final { return .null }
-        }
 
         guard result == nil else {
             guard final else {
