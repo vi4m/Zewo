@@ -69,7 +69,7 @@ extension String {
 
         if stripTrailing {
             if result.last == "/" {
-                result = result.dropLast()
+                return String(result.dropLast())
             }
         }
 
